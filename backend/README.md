@@ -27,6 +27,8 @@ npm install
 cp .env.example .env
 ```
 
+Set a valid PostgreSQL connection string in `DATABASE_URL`.
+
 3. Start in development mode:
 
 ```bash
@@ -42,6 +44,9 @@ npm run build
 ## API base path
 
 - `GET /api/health`
+- `POST /api/productions`
+- `GET /api/productions`
+- `PATCH /api/productions/:id/complete`
 - `GET /api/users`
 - `GET /api/users/:id`
 - `POST /api/users`
