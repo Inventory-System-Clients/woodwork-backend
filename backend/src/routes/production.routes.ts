@@ -21,5 +21,11 @@ productionRoutes.patch(
   authorizeRoles("admin", "gerente"),
   productionController.complete,
 );
+productionRoutes.patch(
+  "/:id/approve",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  productionController.complete,
+);
 
 export { productionRoutes };

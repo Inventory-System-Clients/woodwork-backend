@@ -4,23 +4,24 @@ Contexto:
 - Projeto frontend em Vite.
 - Backend protegido com Bearer Token JWT.
 - O backend agora baixa estoque automaticamente ao aprovar/concluir a producao.
-- A aprovacao/conclusao acontece no endpoint `PATCH /api/productions/:id/complete`.
+- A aprovacao/conclusao acontece nos endpoints `PATCH /api/productions/:id/approve` e `PATCH /api/productions/:id/complete`.
 
 Objetivo:
 - Garantir UX correta quando a aprovacao falhar por estoque insuficiente.
 - Atualizar UI de produtos/estoque e lista de producoes apos aprovacao com sucesso.
 
 Endpoint impactado:
-- `PATCH /api/productions/:id/complete`
+- `PATCH /api/productions/:id/approve` (preferencial)
+- `PATCH /api/productions/:id/complete` (compatibilidade)
 - Headers obrigatorios:
   - `Authorization: Bearer <token>`
 
 Novo comportamento backend:
-- Quando a producao muda para `delivered`:
+- Quando a producao muda para `approved`:
   - Desconta `materials[].quantity` do `products.stock_quantity`.
   - Cria movimentacao de saida em `product_stock_movements` para cada material.
 - Operacao e transacional e idempotente:
-  - Se ja estava `delivered`, nao desconta novamente.
+  - Se ja estava `approved` (ou `delivered` legado), nao desconta novamente.
 
 Tratamento de erros esperado no frontend:
 
@@ -49,7 +50,7 @@ Implementacao frontend sugerida:
 
 2. Tela de producoes
 - Ao sucesso:
-  - Atualizar status da producao para `delivered`.
+  - Atualizar status da producao para `approved`.
   - Revalidar/refetch da lista de producoes.
   - Revalidar/refetch de estoque/produtos (se houver widget/tabela de estoque na mesma tela).
 

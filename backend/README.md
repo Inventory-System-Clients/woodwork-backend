@@ -50,6 +50,7 @@ npm run build
 - `POST /api/productions`
 - `GET /api/productions`
 - `GET /api/productions?employeeId=:employeeId`
+- `PATCH /api/productions/:id/approve`
 - `PATCH /api/productions/:id/complete`
 - `GET /api/employees`
 - `GET /api/employees/:id`
@@ -138,12 +139,12 @@ Business rules:
 
 ## Stock deduction on production completion
 
-When `PATCH /api/productions/:id/complete` is called and the production transitions to `delivered`, backend now:
+When `PATCH /api/productions/:id/approve` (or `PATCH /api/productions/:id/complete`) is called and the production transitions to `approved`, backend now:
 
 - Deducts each material quantity from `products.stock_quantity`.
 - Inserts one outbound movement (`movement_type = 'saida'`) into `product_stock_movements` per product.
 - Executes all steps in a single DB transaction.
-- Prevents duplicate deduction if the production is already `delivered`.
+- Prevents duplicate deduction if the production is already `approved` (or legacy `delivered`).
 
 Error scenarios:
 
