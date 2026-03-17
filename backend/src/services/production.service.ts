@@ -33,7 +33,7 @@ async function completeProduction(id: string): Promise<Production> {
   const production = await productionRepository.complete(id);
 
   if (!production) {
-    throw new AppError("Production not found", 404);
+    throw new AppError("Production not found", 404, { productionId: id });
   }
 
   return production;
