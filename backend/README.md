@@ -47,11 +47,28 @@ npm run build
 - `POST /api/productions`
 - `GET /api/productions`
 - `PATCH /api/productions/:id/complete`
+- `GET /api/employees`
+- `GET /api/employees/:id`
+- `POST /api/employees`
+- `PATCH /api/employees/:id`
+- `DELETE /api/employees/:id`
+- `GET /api/teams`
+- `GET /api/teams/:id`
+- `POST /api/teams`
+- `PATCH /api/teams/:id`
+- `PUT /api/teams/:id/members`
+- `DELETE /api/teams/:id`
 - `GET /api/users`
 - `GET /api/users/:id`
 - `POST /api/users`
 - `PATCH /api/users/:id`
 - `DELETE /api/users/:id`
+
+## Database migration
+
+To create employees, teams, and team-member relationships, run this script in PostgreSQL (for example in DBeaver):
+
+- `sql/20260317_create_teams_and_employees.sql`
 
 ## Deploy on Render
 
@@ -76,6 +93,7 @@ If you prefer a manual setup, use these values in a **Web Service**:
 - Health Check Path: `/api/health`
 - Node Version: `20`
 - Environment Variable: `NODE_ENV=production`
+- Environment Variable: `DATABASE_URL=<your_postgresql_connection_string>`
 
 After the first deploy, your API should be available at:
 
