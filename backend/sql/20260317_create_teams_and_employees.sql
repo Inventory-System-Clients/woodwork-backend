@@ -62,5 +62,12 @@ BEGIN
   END IF;
 END $$;
 
+UPDATE public.production_orders po
+SET installation_team_id = t.id
+FROM public.teams t
+WHERE po.installation_team_id IS NULL
+  AND po.installation_team IS NOT NULL
+  AND LOWER(po.installation_team) = LOWER(t.name);
+
 CREATE INDEX IF NOT EXISTS idx_production_orders_installation_team_id
 ON public.production_orders (installation_team_id);

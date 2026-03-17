@@ -46,6 +46,7 @@ npm run build
 - `GET /api/health`
 - `POST /api/productions`
 - `GET /api/productions`
+- `GET /api/productions?employeeId=:employeeId`
 - `PATCH /api/productions/:id/complete`
 - `GET /api/employees`
 - `GET /api/employees/:id`
@@ -69,6 +70,8 @@ npm run build
 To create employees, teams, and team-member relationships, run this script in PostgreSQL (for example in DBeaver):
 
 - `sql/20260317_create_teams_and_employees.sql`
+
+When creating a production, send `installationTeamId` (team id from `GET /api/teams`) in the request body.
 
 ## Deploy on Render
 

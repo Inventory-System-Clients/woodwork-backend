@@ -18,7 +18,7 @@ export const createProductionSchema = z.object({
   clientName: z.string().trim().min(2, "clientName must have at least 2 characters").max(200),
   description: z.string().trim().min(1, "description is required").max(2000),
   deliveryDate: deliveryDateSchema.optional().nullable(),
-  installationTeam: z.string().trim().min(1).max(200).optional().nullable(),
+  installationTeamId: z.string().trim().min(1, "installationTeamId is required"),
   initialCost: z.coerce.number().nonnegative("initialCost cannot be negative").default(0),
   materials: z.array(productionMaterialSchema).min(1, "At least one material is required"),
 });
@@ -36,6 +36,7 @@ export interface Production {
   description: string;
   productionStatus: string;
   deliveryDate: string | null;
+  installationTeamId: string | null;
   installationTeam: string | null;
   initialCost: number;
   materials: ProductionMaterial[];

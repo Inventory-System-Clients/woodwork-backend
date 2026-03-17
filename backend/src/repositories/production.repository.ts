@@ -2,12 +2,17 @@ import { PoolClient } from "pg";
 import { pool } from "../database/postgres";
 import { CreateProductionInput, Production, ProductionMaterial } from "../models/production.model";
 
+type CreateProductionRepositoryInput = CreateProductionInput & {
+  installationTeam: string | null;
+};
+
 interface ProductionOrderRow {
   id: string;
   client_name: string;
   description: string;
   production_status: string;
   delivery_date: string | Date | null;
+  installation_team_id: string | null;
   installation_team: string | null;
   initial_cost: string | number;
 }
@@ -20,6 +25,8 @@ interface ProductionWithMaterialRow extends ProductionOrderRow {
 }
 
 let productIdColumnExists: boolean | null = null;
+let installationTeamIdColumnExists: boolean | null = null;
+let teamMembersTableExists: boolean | null = null;
 
 function toNumber(value: string | number | null): number {
   if (value === null) {
@@ -49,6 +56,7 @@ function mapProductionRow(row: ProductionOrderRow): Production {
     description: row.description,
     productionStatus: row.production_status,
     deliveryDate: toDateString(row.delivery_date),
+    installationTeamId: row.installation_team_id,
     installationTeam: row.installation_team,
     initialCost: toNumber(row.initial_cost),
     materials: [],
@@ -128,12 +136,57 @@ async function hasProductIdColumn(client: PoolClient): Promise<boolean> {
   return productIdColumnExists;
 }
 
+async function hasInstallationTeamIdColumn(client: PoolClient): Promise<boolean> {
+  if (installationTeamIdColumnExists !== null) {
+    return installationTeamIdColumnExists;
+  }
+
+  const result = await client.query<{ exists: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'production_orders'
+          AND column_name = 'installation_team_id'
+      ) AS exists;
+    `,
+  );
+
+  installationTeamIdColumnExists = Boolean(result.rows[0]?.exists);
+  return installationTeamIdColumnExists;
+}
+
+async function hasTeamMembersTable(client: PoolClient): Promise<boolean> {
+  if (teamMembersTableExists !== null) {
+    return teamMembersTableExists;
+  }
+
+  const result = await client.query<{ exists: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'team_members'
+      ) AS exists;
+    `,
+  );
+
+  teamMembersTableExists = Boolean(result.rows[0]?.exists);
+  return teamMembersTableExists;
+}
+
 async function listById(id: string): Promise<Production | undefined> {
   const client = await pool.connect();
 
   try {
     const canUseProductId = await hasProductIdColumn(client);
+    const canUseInstallationTeamId = await hasInstallationTeamIdColumn(client);
     const productIdSelect = canUseProductId ? "pom.product_id" : "NULL::text AS product_id";
+    const installationTeamIdSelect = canUseInstallationTeamId
+      ? "po.installation_team_id"
+      : "NULL::text AS installation_team_id";
 
     const result = await client.query<ProductionWithMaterialRow>(
       `
@@ -143,6 +196,7 @@ async function listById(id: string): Promise<Production | undefined> {
           po.description,
           po.production_status,
           po.delivery_date,
+          ${installationTeamIdSelect},
           po.installation_team,
           po.initial_cost,
           ${productIdSelect},
@@ -168,12 +222,27 @@ async function listById(id: string): Promise<Production | undefined> {
   }
 }
 
-async function findAll(): Promise<Production[]> {
+async function findAll(employeeId?: string): Promise<Production[]> {
   const client = await pool.connect();
 
   try {
     const canUseProductId = await hasProductIdColumn(client);
+    const canUseInstallationTeamId = await hasInstallationTeamIdColumn(client);
+    const canUseTeamMembersTable = await hasTeamMembersTable(client);
     const productIdSelect = canUseProductId ? "pom.product_id" : "NULL::text AS product_id";
+    const installationTeamIdSelect = canUseInstallationTeamId
+      ? "po.installation_team_id"
+      : "NULL::text AS installation_team_id";
+
+    if (employeeId && (!canUseInstallationTeamId || !canUseTeamMembersTable)) {
+      return [];
+    }
+
+    const filterByEmployee = Boolean(employeeId);
+    const employeeJoin = filterByEmployee
+      ? "INNER JOIN public.team_members tm ON tm.team_id = po.installation_team_id"
+      : "";
+    const employeeWhere = filterByEmployee ? "WHERE tm.employee_id = $1" : "";
 
     const result = await client.query<ProductionWithMaterialRow>(
       `
@@ -183,6 +252,7 @@ async function findAll(): Promise<Production[]> {
           po.description,
           po.production_status,
           po.delivery_date,
+          ${installationTeamIdSelect},
           po.installation_team,
           po.initial_cost,
           ${productIdSelect},
@@ -190,10 +260,13 @@ async function findAll(): Promise<Production[]> {
           pom.quantity,
           pom.unit
         FROM public.production_orders po
+        ${employeeJoin}
         LEFT JOIN public.production_order_materials pom
           ON pom.production_order_id = po.id
+        ${employeeWhere}
         ORDER BY po.created_at DESC, pom.id ASC;
       `,
+      employeeId ? [employeeId] : undefined,
     );
 
     return groupRows(result.rows);
@@ -202,42 +275,76 @@ async function findAll(): Promise<Production[]> {
   }
 }
 
-async function create(payload: CreateProductionInput): Promise<Production> {
+async function create(payload: CreateProductionRepositoryInput): Promise<Production> {
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
     const canUseProductId = await hasProductIdColumn(client);
+    const canUseInstallationTeamId = await hasInstallationTeamIdColumn(client);
 
-    const productionInsert = await client.query<ProductionOrderRow>(
-      `
-        INSERT INTO public.production_orders (
-          client_name,
-          description,
-          production_status,
-          delivery_date,
-          installation_team,
-          initial_cost
+    const productionInsert = canUseInstallationTeamId
+      ? await client.query<ProductionOrderRow>(
+          `
+            INSERT INTO public.production_orders (
+              client_name,
+              description,
+              production_status,
+              delivery_date,
+              installation_team,
+              installation_team_id,
+              initial_cost
+            )
+            VALUES ($1, $2, 'pending', $3, $4, $5, $6)
+            RETURNING
+              id::text AS id,
+              client_name,
+              description,
+              production_status,
+              delivery_date,
+              installation_team_id,
+              installation_team,
+              initial_cost;
+          `,
+          [
+            payload.clientName,
+            payload.description,
+            payload.deliveryDate ?? null,
+            payload.installationTeam,
+            payload.installationTeamId,
+            payload.initialCost,
+          ],
         )
-        VALUES ($1, $2, 'pending', $3, $4, $5)
-        RETURNING
-          id::text AS id,
-          client_name,
-          description,
-          production_status,
-          delivery_date,
-          installation_team,
-          initial_cost;
-      `,
-      [
-        payload.clientName,
-        payload.description,
-        payload.deliveryDate ?? null,
-        payload.installationTeam ?? null,
-        payload.initialCost,
-      ],
-    );
+      : await client.query<ProductionOrderRow>(
+          `
+            INSERT INTO public.production_orders (
+              client_name,
+              description,
+              production_status,
+              delivery_date,
+              installation_team,
+              initial_cost
+            )
+            VALUES ($1, $2, 'pending', $3, $4, $5)
+            RETURNING
+              id::text AS id,
+              client_name,
+              description,
+              production_status,
+              delivery_date,
+              NULL::text AS installation_team_id,
+              installation_team,
+              initial_cost;
+          `,
+          [
+            payload.clientName,
+            payload.description,
+            payload.deliveryDate ?? null,
+            payload.installationTeam,
+            payload.initialCost,
+          ],
+        );
 
     const production = mapProductionRow(productionInsert.rows[0]);
 
@@ -293,37 +400,49 @@ async function create(payload: CreateProductionInput): Promise<Production> {
 }
 
 async function complete(id: string): Promise<Production | undefined> {
-  const updateResult = await pool.query<ProductionOrderRow>(
-    `
-      UPDATE public.production_orders
-      SET
-        production_status = 'delivered',
-        completed_at = NOW(),
-        updated_at = NOW()
-      WHERE id = $1
-      RETURNING
-        id::text AS id,
-        client_name,
-        description,
-        production_status,
-        delivery_date,
-        installation_team,
-        initial_cost;
-    `,
-    [id],
-  );
+  const client = await pool.connect();
 
-  if (updateResult.rows.length === 0) {
-    return undefined;
+  try {
+    const canUseInstallationTeamId = await hasInstallationTeamIdColumn(client);
+    const installationTeamIdSelect = canUseInstallationTeamId
+      ? "installation_team_id"
+      : "NULL::text AS installation_team_id";
+
+    const updateResult = await client.query<ProductionOrderRow>(
+      `
+        UPDATE public.production_orders
+        SET
+          production_status = 'delivered',
+          completed_at = NOW(),
+          updated_at = NOW()
+        WHERE id = $1
+        RETURNING
+          id::text AS id,
+          client_name,
+          description,
+          production_status,
+          delivery_date,
+          ${installationTeamIdSelect},
+          installation_team,
+          initial_cost;
+      `,
+      [id],
+    );
+
+    if (updateResult.rows.length === 0) {
+      return undefined;
+    }
+
+    const fullProduction = await listById(id);
+
+    if (fullProduction) {
+      return fullProduction;
+    }
+
+    return mapProductionRow(updateResult.rows[0]);
+  } finally {
+    client.release();
   }
-
-  const fullProduction = await listById(id);
-
-  if (fullProduction) {
-    return fullProduction;
-  }
-
-  return mapProductionRow(updateResult.rows[0]);
 }
 
 export const productionRepository = {

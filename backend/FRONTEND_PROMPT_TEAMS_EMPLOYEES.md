@@ -25,6 +25,11 @@ Requisitos funcionais:
 - Ao abrir cadastro/edicao de equipe, carregar lista de funcionarios para selecao.
 - Exibir no card/linha da equipe quantos membros ela tem e lista resumida dos nomes.
 
+4. Producao vinculada a equipe
+- Na tela de criacao de producao, o campo Equipe deve ser um select carregado de GET /api/teams.
+- Ao salvar producao, enviar installationTeamId com o id da equipe selecionada.
+- Para listar as producoes de um funcionario, chamar GET /api/productions?employeeId=:employeeId.
+
 Endpoints backend:
 - GET /api/employees
 - GET /api/employees/:id
@@ -37,6 +42,8 @@ Endpoints backend:
 - PATCH /api/teams/:id
 - PUT /api/teams/:id/members
 - DELETE /api/teams/:id
+- GET /api/productions?employeeId=:employeeId
+- POST /api/productions
 
 Contrato de dados esperado:
 
@@ -107,12 +114,34 @@ Atualizar membros da equipe (PUT /api/teams/:id/members):
   "employeeIds": ["employee-id-1", "employee-id-2"]
 }
 
+Criar producao (POST /api/productions):
+{
+  "clientName": "string",
+  "description": "string",
+  "deliveryDate": "ISO string | null",
+  "installationTeamId": "team-id",
+  "initialCost": 0,
+  "materials": [
+    {
+      "productId": "string opcional",
+      "productName": "string",
+      "quantity": 1,
+      "unit": "string"
+    }
+  ]
+}
+
+Listar producoes por funcionario (GET /api/productions?employeeId=:employeeId):
+- Retorna somente producoes vinculadas as equipes nas quais o funcionario e membro.
+
 Requisitos tecnicos de frontend:
 - Criar camada de API tipada (ex.: services/employees.ts e services/teams.ts).
 - Tratar loading, erro e estado vazio nas duas abas.
 - Se backend retornar erro 400/409, exibir mensagem amigavel.
 - Evitar hardcode de URL: usar VITE_API_URL.
 - Se VITE_API_URL nao existir, usar fallback /api.
+- No formulario de producao, equipe deve ser select obrigatorio alimentado por GET /api/teams.
+- Na tela de funcionario, incluir acao "Minhas producoes" usando GET /api/productions?employeeId=<id>.
 
 Critérios de aceite:
 1. Usuario consegue cadastrar funcionario e visualizar na listagem.
@@ -120,3 +149,5 @@ Critérios de aceite:
 3. Usuario consegue editar membros da equipe sem recarregar a pagina inteira.
 4. Exclusao de funcionario remove vinculos nas equipes sem quebrar a tela.
 5. Todas as chamadas usam os endpoints corretos e tratam erro de rede/API.
+6. Criacao de producao envia installationTeamId valido.
+7. Listagem por funcionario nao exibe producoes de equipes onde ele nao participa.
