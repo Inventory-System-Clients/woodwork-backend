@@ -43,6 +43,8 @@ npm run build
 
 ## API base path
 
+- `POST /api/auth/login`
+- `GET /api/auth/me`
 - `GET /api/health`
 - `POST /api/productions`
 - `GET /api/productions`
@@ -70,8 +72,24 @@ npm run build
 To create employees, teams, and team-member relationships, run this script in PostgreSQL (for example in DBeaver):
 
 - `sql/20260317_create_teams_and_employees.sql`
+- `sql/20260317_add_employee_auth_roles.sql`
 
 When creating a production, send `installationTeamId` (team id from `GET /api/teams`) in the request body.
+
+Bootstrap users created by `sql/20260317_add_employee_auth_roles.sql`:
+
+- `admin@backwood.com` (`admin`)
+- `gerente@backwood.com` (`gerente`)
+- `funcionario@backwood.com` (`funcionario`)
+- Initial password for all: `Senha@123`
+
+## Authentication and roles
+
+- Login is based on employee email and password.
+- Roles: `admin`, `gerente`, `funcionario`.
+- `admin` and `gerente` can manage employees, teams, and productions.
+- `funcionario` cannot create/complete productions and cannot access employees/teams/users management routes.
+- `funcionario` can list productions, but only from teams where this employee is a member.
 
 ## Deploy on Render
 
@@ -97,6 +115,7 @@ If you prefer a manual setup, use these values in a **Web Service**:
 - Node Version: `20`
 - Environment Variable: `NODE_ENV=production`
 - Environment Variable: `DATABASE_URL=<your_postgresql_connection_string>`
+- Environment Variable: `JWT_SECRET=<a-strong-secret-with-at-least-16-characters>`
 
 After the first deploy, your API should be available at:
 

@@ -1,6 +1,13 @@
+import bcrypt from "bcryptjs";
 import { CreateEmployeeInput, Employee, UpdateEmployeeInput } from "../models/employee.model";
 import { employeeRepository } from "../repositories/employee.repository";
 import { AppError } from "../utils/app-error";
+
+const PASSWORD_SALT_ROUNDS = 10;
+
+function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, PASSWORD_SALT_ROUNDS);
+}
 
 async function listEmployees(): Promise<Employee[]> {
   return employeeRepository.findAll();
@@ -17,21 +24,21 @@ async function getEmployeeById(id: string): Promise<Employee> {
 }
 
 async function createEmployee(payload: CreateEmployeeInput): Promise<Employee> {
-  if (payload.email) {
-    const emailInUse = await employeeRepository.findByEmail(payload.email);
+  const emailInUse = await employeeRepository.findByEmail(payload.email);
 
-    if (emailInUse) {
-      throw new AppError("Email is already in use", 409);
-    }
+  if (emailInUse) {
+    throw new AppError("Email is already in use", 409);
   }
 
-  return employeeRepository.create(payload);
+  const passwordHash = await hashPassword(payload.password);
+  return employeeRepository.create(payload, passwordHash);
 }
 
 async function updateEmployee(id: string, payload: UpdateEmployeeInput): Promise<Employee> {
   const existingEmployee = await employeeRepository.findById(id);
+  const existingAuthEmployee = await employeeRepository.findAuthById(id);
 
-  if (!existingEmployee) {
+  if (!existingEmployee || !existingAuthEmployee) {
     throw new AppError("Employee not found", 404);
   }
 
@@ -47,8 +54,12 @@ async function updateEmployee(id: string, payload: UpdateEmployeeInput): Promise
     name: payload.name ?? existingEmployee.name,
     position: payload.position !== undefined ? payload.position : existingEmployee.position,
     phone: payload.phone !== undefined ? payload.phone : existingEmployee.phone,
-    email: payload.email !== undefined ? payload.email : existingEmployee.email,
+    email: payload.email ?? existingEmployee.email,
+    role: payload.role ?? existingEmployee.role,
     isActive: payload.isActive ?? existingEmployee.isActive,
+    passwordHash: payload.password
+      ? await hashPassword(payload.password)
+      : existingAuthEmployee.passwordHash,
   });
 
   if (!updatedEmployee) {

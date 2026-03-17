@@ -3,7 +3,9 @@ CREATE TABLE IF NOT EXISTS public.employees (
   name TEXT NOT NULL,
   position TEXT,
   phone TEXT,
-  email TEXT,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'funcionario',
+  password_hash TEXT,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

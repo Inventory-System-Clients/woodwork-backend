@@ -1,36 +1,32 @@
-# Prompt para implementar Equipes e Funcionarios no frontend
+# Prompt para implementar Login, Roles, Equipes, Funcionarios e Producoes por Equipe no frontend
 
 Contexto:
 - Projeto frontend em Vite.
 - Backend base URL configurada em VITE_API_URL.
-- API existente no backend com os endpoints abaixo.
-- Objetivo: criar duas abas novas no sistema: Funcionarios e Equipes.
+- Objetivo: implementar autenticacao por email/senha e controle de acesso por role.
+- Roles do sistema: admin, gerente, funcionario.
 
-Requisitos funcionais:
-1. Aba Funcionarios
-- Listar funcionarios cadastrados.
-- Cadastrar funcionario.
-- Editar funcionario.
-- Excluir funcionario.
+Regras de permissao:
+1. Admin e Gerente
+- Mesmas permissoes.
+- Podem cadastrar/editar/excluir funcionarios.
+- Podem cadastrar/editar/excluir equipes e membros.
+- Podem criar producoes e concluir producoes.
+- Podem acessar todos os modulos do painel.
 
-2. Aba Equipes
-- Listar equipes cadastradas.
-- Cadastrar equipe.
-- Editar equipe.
-- Excluir equipe.
-- Montar equipe escolhendo funcionarios ja cadastrados.
-- Permitir atualizar membros da equipe (adicionar/remover) com selecao multipla.
+2. Funcionario
+- Nao pode criar producoes.
+- Nao pode ver receita mensal.
+- Nao pode ver clientes.
+- Nao pode ver funcionarios.
+- Nao pode ver orcamentos.
+- Pode apenas ver producoes da equipe em que participa.
 
-3. Integracao entre telas
-- Ao abrir cadastro/edicao de equipe, carregar lista de funcionarios para selecao.
-- Exibir no card/linha da equipe quantos membros ela tem e lista resumida dos nomes.
+Endpoints backend para autenticacao:
+- POST /api/auth/login
+- GET /api/auth/me
 
-4. Producao vinculada a equipe
-- Na tela de criacao de producao, o campo Equipe deve ser um select carregado de GET /api/teams.
-- Ao salvar producao, enviar installationTeamId com o id da equipe selecionada.
-- Para listar as producoes de um funcionario, chamar GET /api/productions?employeeId=:employeeId.
-
-Endpoints backend:
+Endpoints backend para dominio:
 - GET /api/employees
 - GET /api/employees/:id
 - POST /api/employees
@@ -42,10 +38,41 @@ Endpoints backend:
 - PATCH /api/teams/:id
 - PUT /api/teams/:id/members
 - DELETE /api/teams/:id
+- GET /api/productions
 - GET /api/productions?employeeId=:employeeId
 - POST /api/productions
+- PATCH /api/productions/:id/complete
 
-Contrato de dados esperado:
+Contrato de autenticacao:
+
+Login request (POST /api/auth/login):
+{
+  "email": "string",
+  "password": "string"
+}
+
+Login response:
+{
+  "data": {
+    "token": "jwt",
+    "user": {
+      "id": "string",
+      "name": "string",
+      "email": "string",
+      "role": "admin | gerente | funcionario"
+    }
+  }
+}
+
+Me response (GET /api/auth/me):
+{
+  "data": {
+    "id": "string",
+    "name": "string",
+    "email": "string",
+    "role": "admin | gerente | funcionario"
+  }
+}
 
 Funcionario (response):
 {
@@ -53,7 +80,8 @@ Funcionario (response):
   "name": "string",
   "position": "string | null",
   "phone": "string | null",
-  "email": "string | null",
+  "email": "string",
+  "role": "admin | gerente | funcionario",
   "isActive": true,
   "createdAt": "ISO string",
   "updatedAt": "ISO string"
@@ -64,7 +92,9 @@ Criar funcionario (POST /api/employees):
   "name": "string",
   "position": "string | null",
   "phone": "string | null",
-  "email": "string | null",
+  "email": "string",
+  "password": "string (min 6)",
+  "role": "admin | gerente | funcionario",
   "isActive": true
 }
 
@@ -73,7 +103,9 @@ Editar funcionario (PATCH /api/employees/:id):
   "name": "string opcional",
   "position": "string | null opcional",
   "phone": "string | null opcional",
-  "email": "string | null opcional",
+  "email": "string opcional",
+  "password": "string opcional",
+  "role": "admin | gerente | funcionario opcional",
   "isActive": "boolean opcional"
 }
 
@@ -103,12 +135,6 @@ Criar equipe (POST /api/teams):
   "memberIds": ["employee-id-1", "employee-id-2"]
 }
 
-Editar equipe (PATCH /api/teams/:id):
-{
-  "name": "string opcional",
-  "description": "string | null opcional"
-}
-
 Atualizar membros da equipe (PUT /api/teams/:id/members):
 {
   "employeeIds": ["employee-id-1", "employee-id-2"]
@@ -131,23 +157,28 @@ Criar producao (POST /api/productions):
   ]
 }
 
-Listar producoes por funcionario (GET /api/productions?employeeId=:employeeId):
-- Retorna somente producoes vinculadas as equipes nas quais o funcionario e membro.
+Regras de producao por perfil:
+- Admin/gerente: podem listar todas as producoes (GET /api/productions) e filtrar por funcionario com ?employeeId.
+- Funcionario: backend ja devolve somente producoes da equipe dele em GET /api/productions; frontend nao deve exibir filtro global para funcionario.
 
 Requisitos tecnicos de frontend:
-- Criar camada de API tipada (ex.: services/employees.ts e services/teams.ts).
-- Tratar loading, erro e estado vazio nas duas abas.
-- Se backend retornar erro 400/409, exibir mensagem amigavel.
-- Evitar hardcode de URL: usar VITE_API_URL.
-- Se VITE_API_URL nao existir, usar fallback /api.
+- Criar modulo de autenticacao com contexto global (AuthProvider ou store).
+- Salvar token JWT (preferencia: memory + refresh via login; alternativa: localStorage).
+- Enviar Authorization: Bearer <token> em todas as chamadas autenticadas.
+- Na inicializacao do app, chamar GET /api/auth/me para restaurar sessao.
+- Criar guardas de rota por role.
+- Montar menu dinamico por role:
+  - admin/gerente: menu completo.
+  - funcionario: esconder receita mensal, clientes, funcionarios, orcamentos e criacao de producao.
 - No formulario de producao, equipe deve ser select obrigatorio alimentado por GET /api/teams.
-- Na tela de funcionario, incluir acao "Minhas producoes" usando GET /api/productions?employeeId=<id>.
+- Tratar 401 redirecionando para login.
+- Tratar 403 exibindo mensagem de acesso negado.
 
 Critérios de aceite:
-1. Usuario consegue cadastrar funcionario e visualizar na listagem.
-2. Usuario consegue cadastrar equipe e definir membros com funcionarios existentes.
-3. Usuario consegue editar membros da equipe sem recarregar a pagina inteira.
-4. Exclusao de funcionario remove vinculos nas equipes sem quebrar a tela.
-5. Todas as chamadas usam os endpoints corretos e tratam erro de rede/API.
-6. Criacao de producao envia installationTeamId valido.
-7. Listagem por funcionario nao exibe producoes de equipes onde ele nao participa.
+1. Usuario autentica com email/senha e recebe token.
+2. Sessao persiste durante a navegacao e pode ser restaurada por /api/auth/me.
+3. Admin e gerente possuem as mesmas telas e permissoes.
+4. Funcionario nao ve modulos restritos (receita mensal, clientes, funcionarios, orcamentos).
+5. Funcionario nao consegue criar producao.
+6. Funcionario ve apenas producoes da propria equipe.
+7. Formulario de producao usa select de equipe e envia installationTeamId valido.

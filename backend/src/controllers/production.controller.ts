@@ -3,7 +3,9 @@ import { productionService } from "../services/production.service";
 import { asyncHandler } from "../utils/async-handler";
 
 const list = asyncHandler(async (req: Request, res: Response) => {
-  const employeeId = typeof req.query.employeeId === "string" ? req.query.employeeId : undefined;
+  const employeeIdQuery = typeof req.query.employeeId === "string" ? req.query.employeeId : undefined;
+  const employeeId = req.authUser?.role === "funcionario" ? req.authUser.id : employeeIdQuery;
+
   const productions = await productionService.listProductions(employeeId);
   res.status(200).json({ data: productions });
 });

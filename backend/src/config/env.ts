@@ -7,6 +7,8 @@ const envSchema = z.object({
     .string({ required_error: "DATABASE_URL is required" })
     .trim()
     .min(1, "DATABASE_URL is required"),
+  JWT_SECRET: z.string().trim().min(16).default("change-me-in-production"),
+  JWT_EXPIRES_IN: z.string().trim().min(1).default("12h"),
   PORT: z
     .string()
     .regex(/^\d+$/, "PORT must be a valid number")
