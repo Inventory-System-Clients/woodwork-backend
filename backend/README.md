@@ -45,6 +45,7 @@ npm run build
 
 - `POST /api/auth/login`
 - `GET /api/auth/me`
+- `GET /api/logistics/summary`
 - `GET /api/health`
 - `POST /api/productions`
 - `GET /api/productions`
@@ -73,6 +74,7 @@ To create employees, teams, and team-member relationships, run this script in Po
 
 - `sql/20260317_create_teams_and_employees.sql`
 - `sql/20260317_add_employee_auth_roles.sql`
+- `sql/20260317_add_logistics_indexes.sql` (optional, for query performance)
 
 When creating a production, send `installationTeamId` (team id from `GET /api/teams`) in the request body.
 
@@ -90,6 +92,46 @@ Bootstrap users created by `sql/20260317_add_employee_auth_roles.sql`:
 - `admin` and `gerente` can manage employees, teams, and productions.
 - `funcionario` cannot create/complete productions and cannot access employees/teams/users management routes.
 - `funcionario` can list productions, but only from teams where this employee is a member.
+- `GET /api/logistics/summary` is available only for `admin` and `gerente`.
+
+## Logistics summary contract
+
+Endpoint:
+
+- `GET /api/logistics/summary`
+
+Response:
+
+```json
+{
+	"data": {
+		"teamsCount": 0,
+		"activeEmployeesCount": 0,
+		"productions": {
+			"activeCount": 0,
+			"overdueCount": 0,
+			"nearDeadlineCount": 0,
+			"onTimeCount": 0
+		},
+		"topMaterials": [
+			{
+				"productId": "string",
+				"productName": "string",
+				"unit": "string",
+				"totalQuantity": 0
+			}
+		],
+		"activeProductionsTotalCost": 0
+	}
+}
+```
+
+Business rules:
+
+- Active production statuses: `pending`, `cutting`, `assembly`, `finishing`, `quality_check`.
+- Overdue: `delivery_date < today` and active status.
+- Near deadline: `delivery_date between today and today + 3 days` and active status.
+- On time: `delivery_date > today + 3 days` and active status.
 
 ## Deploy on Render
 
