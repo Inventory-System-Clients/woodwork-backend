@@ -47,6 +47,11 @@ npm run build
 - `GET /api/auth/me`
 - `GET /api/logistics/summary`
 - `GET /api/health`
+- `GET /api/budgets`
+- `GET /api/budgets/:id`
+- `POST /api/budgets`
+- `PATCH /api/budgets/:id`
+- `PATCH /api/budgets/:id/approve`
 - `POST /api/productions`
 - `GET /api/productions`
 - `GET /api/productions?employeeId=:employeeId`
@@ -75,6 +80,7 @@ To create employees, teams, and team-member relationships, run this script in Po
 
 - `sql/20260317_create_teams_and_employees.sql`
 - `sql/20260317_add_employee_auth_roles.sql`
+- `sql/20260317_create_budgets.sql`
 - `sql/20260317_add_logistics_indexes.sql` (optional, for query performance)
 - `sql/20260317_add_product_stock_movements.sql` (required for stock deduction on production completion)
 
@@ -94,7 +100,9 @@ Bootstrap users created by `sql/20260317_add_employee_auth_roles.sql`:
 - Login is based on employee email and password.
 - Roles: `admin`, `gerente`, `funcionario`.
 - `admin` and `gerente` can manage employees, teams, and productions.
+- `admin` and `gerente` can manage budgets.
 - `funcionario` cannot create/complete productions and cannot access employees/teams/users management routes.
+- `funcionario` cannot access budgets routes.
 - `funcionario` can list productions, but only from teams where this employee is a member.
 - `GET /api/logistics/summary` is available only for `admin` and `gerente`.
 
