@@ -16,6 +16,12 @@ productionRoutes.post(
   productionController.create,
 );
 productionRoutes.patch(
+  "/:id/advance-status",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  productionController.advanceStatus,
+);
+productionRoutes.patch(
   "/:id/complete",
   requireAuth,
   authorizeRoles("admin", "gerente"),

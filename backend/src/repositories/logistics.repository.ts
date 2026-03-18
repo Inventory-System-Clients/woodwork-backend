@@ -6,6 +6,7 @@ const ACTIVE_PRODUCTION_STATUSES = [
   "cutting",
   "assembly",
   "finishing",
+  // Controle de qualidade permanece no grupo de producoes ativas.
   "quality_check",
 ] as const;
 

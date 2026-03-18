@@ -39,8 +39,19 @@ async function completeProduction(id: string): Promise<Production> {
   return production;
 }
 
+async function advanceProductionStatus(id: string): Promise<Production> {
+  const production = await productionRepository.advanceStatus(id);
+
+  if (!production) {
+    throw new AppError("Production not found", 404, { productionId: id });
+  }
+
+  return production;
+}
+
 export const productionService = {
   listProductions,
   createProduction,
   completeProduction,
+  advanceProductionStatus,
 };

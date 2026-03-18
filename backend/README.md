@@ -66,6 +66,7 @@ npm run build
 - `POST /api/productions`
 - `GET /api/productions`
 - `GET /api/productions?employeeId=:employeeId`
+- `PATCH /api/productions/:id/advance-status`
 - `PATCH /api/productions/:id/approve`
 - `PATCH /api/productions/:id/complete`
 - `GET /api/employees`
@@ -95,11 +96,33 @@ To create employees, teams, and team-member relationships, run this script in Po
 - `sql/20260317_add_logistics_indexes.sql` (optional, for query performance)
 - `sql/20260317_add_product_stock_movements.sql` (required for products API, stock movements API, and stock deduction on budget/production approval)
 - `sql/20260318_add_low_stock_alert_to_products.sql` (required to add product low stock alert threshold)
+- `sql/20260318_expand_production_status_flow.sql` (required to support production workflow stages)
 - `sql/20260318_create_clients.sql` (required for clients API)
 
 If `public.products` does not exist yet in your database, this migration creates a minimal products table automatically.
 
 When creating a production, send `installationTeamId` (team id from `GET /api/teams`) in the request body.
+
+Production status workflow values:
+
+- `pending` (Pendente)
+- `cutting` (Corte)
+- `assembly` (Montagem)
+- `finishing` (Acabamento)
+- `quality_check` (Controle)
+- `approved` (Aprovado)
+- `delivered` (Entregue)
+
+Status transition endpoint:
+
+- `PATCH /api/productions/:id/advance-status`
+
+Behavior:
+
+- Advances one step in this exact order:
+	- `pending -> cutting -> assembly -> finishing -> quality_check -> approved -> delivered`
+- When transitioning to `approved`, backend deducts stock and creates outbound stock movements.
+- Calling `advance-status` on `delivered` keeps the production unchanged.
 
 Bootstrap users created by `sql/20260317_add_employee_auth_roles.sql`:
 

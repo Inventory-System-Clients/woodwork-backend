@@ -7,6 +7,28 @@ const deliveryDateSchema = z
     message: "deliveryDate must be a valid date",
   });
 
+export const productionStatusSchema = z.enum([
+  "pending",
+  "cutting",
+  "assembly",
+  "finishing",
+  "quality_check",
+  "approved",
+  "delivered",
+]);
+
+export type ProductionStatus = z.infer<typeof productionStatusSchema>;
+
+export const productionStatusFlow: ProductionStatus[] = [
+  "pending",
+  "cutting",
+  "assembly",
+  "finishing",
+  "quality_check",
+  "approved",
+  "delivered",
+];
+
 export const productionMaterialSchema = z.object({
   productId: z.string().trim().min(1).optional(),
   productName: z.string().trim().min(1, "productName is required").max(255),
@@ -34,7 +56,7 @@ export interface Production {
   id: string;
   clientName: string;
   description: string;
-  productionStatus: string;
+  productionStatus: ProductionStatus;
   deliveryDate: string | null;
   installationTeamId: string | null;
   installationTeam: string | null;

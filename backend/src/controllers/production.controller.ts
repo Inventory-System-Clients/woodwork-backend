@@ -20,8 +20,14 @@ const complete = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json({ data: production });
 });
 
+const advanceStatus = asyncHandler(async (req: Request, res: Response) => {
+  const production = await productionService.advanceProductionStatus(req.params.id);
+  res.status(200).json({ data: production });
+});
+
 export const productionController = {
   list,
   create,
   complete,
+  advanceStatus,
 };

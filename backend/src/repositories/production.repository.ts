@@ -1,6 +1,12 @@
 import { PoolClient } from "pg";
 import { pool } from "../database/postgres";
-import { CreateProductionInput, Production, ProductionMaterial } from "../models/production.model";
+import {
+  CreateProductionInput,
+  Production,
+  ProductionMaterial,
+  ProductionStatus,
+  productionStatusFlow,
+} from "../models/production.model";
 import { AppError } from "../utils/app-error";
 
 type CreateProductionRepositoryInput = CreateProductionInput & {
@@ -45,6 +51,19 @@ let productStockQuantityColumnExists: boolean | null = null;
 let productStockMovementsTableExists: boolean | null = null;
 let productNameColumnExists: boolean | null = null;
 
+const STATUS_ALIASES: Record<string, ProductionStatus> = {
+  pendente: "pending",
+  corte: "cutting",
+  montagem: "assembly",
+  acabamento: "finishing",
+  controle: "quality_check",
+  aprovado: "approved",
+  entregue: "delivered",
+  concluido: "delivered",
+  concluida: "delivered",
+  completed: "delivered",
+};
+
 function toNumber(value: string | number | null): number {
   if (value === null) {
     return 0;
@@ -66,8 +85,24 @@ function toDateString(value: string | Date | null): string | null {
   return value;
 }
 
-function normalizeProductionStatus(status: string): string {
-  return status === "delivered" ? "approved" : status;
+function normalizeProductionStatus(status: string): ProductionStatus {
+  const normalizedStatus = status.trim().toLowerCase();
+
+  if (productionStatusFlow.includes(normalizedStatus as ProductionStatus)) {
+    return normalizedStatus as ProductionStatus;
+  }
+
+  return STATUS_ALIASES[normalizedStatus] ?? "pending";
+}
+
+function getNextProductionStatus(currentStatus: ProductionStatus): ProductionStatus | null {
+  const statusIndex = productionStatusFlow.indexOf(currentStatus);
+
+  if (statusIndex < 0 || statusIndex >= productionStatusFlow.length - 1) {
+    return null;
+  }
+
+  return productionStatusFlow[statusIndex + 1];
 }
 
 function mapProductionRow(row: ProductionOrderRow): Production {
@@ -346,42 +381,45 @@ async function resolveProductIdForMaterial(
   return productByNameResult.rows[0].id;
 }
 
-async function updateProductionAsApproved(client: PoolClient, productionOrderId: string): Promise<string> {
+async function updateProductionStatus(
+  client: PoolClient,
+  productionOrderId: string,
+  nextStatus: ProductionStatus,
+): Promise<ProductionStatus> {
   try {
     await client.query(
       `
         UPDATE public.production_orders
         SET
-          production_status = 'approved',
-          completed_at = NOW(),
+          production_status = $2,
+          completed_at = CASE
+            WHEN $2::text = ANY(ARRAY['approved', 'delivered'])
+              THEN COALESCE(completed_at, NOW())
+            ELSE NULL
+          END,
           updated_at = NOW()
         WHERE id = $1;
       `,
-      [productionOrderId],
+      [productionOrderId, nextStatus],
     );
 
-    return "approved";
+    return nextStatus;
   } catch (error) {
     const code = (error as { code?: string }).code;
 
-    if (code !== "23514") {
-      throw error;
+    if (code === "23514" || code === "22P02") {
+      throw new AppError(
+        "Production status workflow schema is not configured. Run sql/20260318_expand_production_status_flow.sql",
+        500,
+      );
     }
 
-    await client.query(
-      `
-        UPDATE public.production_orders
-        SET
-          production_status = 'delivered',
-          completed_at = NOW(),
-          updated_at = NOW()
-        WHERE id = $1;
-      `,
-      [productionOrderId],
-    );
-
-    return "delivered";
+    throw error;
   }
+}
+
+async function updateProductionAsApproved(client: PoolClient, productionOrderId: string): Promise<ProductionStatus> {
+  return updateProductionStatus(client, productionOrderId, "approved");
 }
 
 async function deductMaterialsFromStock(client: PoolClient, productionOrderId: string): Promise<void> {
@@ -746,12 +784,11 @@ async function complete(id: string): Promise<Production | undefined> {
     }
 
     const currentProduction = currentResult.rows[0];
+    const normalizedCurrentStatus = normalizeProductionStatus(currentProduction.production_status);
 
-    const isAlreadyApproved =
-      currentProduction.production_status === "approved" ||
-      currentProduction.production_status === "delivered";
+    const isAlreadyApproved = normalizedCurrentStatus === "approved" || normalizedCurrentStatus === "delivered";
 
-    let persistedApprovalStatus = currentProduction.production_status;
+    let persistedApprovalStatus: ProductionStatus = normalizedCurrentStatus;
 
     if (!isAlreadyApproved) {
       await deductMaterialsFromStock(client, id);
@@ -768,9 +805,86 @@ async function complete(id: string): Promise<Production | undefined> {
 
     return {
       ...mapProductionRow(currentProduction),
-      productionStatus: normalizeProductionStatus(
-        isAlreadyApproved ? currentProduction.production_status : persistedApprovalStatus,
-      ),
+      productionStatus: isAlreadyApproved ? normalizedCurrentStatus : persistedApprovalStatus,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function advanceStatus(id: string): Promise<Production | undefined> {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const canUseInstallationTeamId = await hasInstallationTeamIdColumn(client);
+    const installationTeamIdSelect = canUseInstallationTeamId
+      ? "installation_team_id"
+      : "NULL::text AS installation_team_id";
+
+    const currentResult = await client.query<ProductionOrderRow>(
+      `
+        SELECT
+          id::text AS id,
+          client_name,
+          description,
+          production_status,
+          delivery_date,
+          ${installationTeamIdSelect},
+          installation_team,
+          initial_cost
+        FROM public.production_orders
+        WHERE id = $1
+        FOR UPDATE;
+      `,
+      [id],
+    );
+
+    if (currentResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return undefined;
+    }
+
+    const currentProduction = currentResult.rows[0];
+    const currentStatus = normalizeProductionStatus(currentProduction.production_status);
+    const nextStatus = getNextProductionStatus(currentStatus);
+
+    if (!nextStatus) {
+      await client.query("COMMIT");
+
+      const alreadyFinalized = await listById(id);
+
+      if (alreadyFinalized) {
+        return alreadyFinalized;
+      }
+
+      return {
+        ...mapProductionRow(currentProduction),
+        productionStatus: currentStatus,
+      };
+    }
+
+    if (nextStatus === "approved" && currentStatus !== "approved" && currentStatus !== "delivered") {
+      await deductMaterialsFromStock(client, id);
+    }
+
+    const persistedNextStatus = await updateProductionStatus(client, id, nextStatus);
+
+    await client.query("COMMIT");
+
+    const fullProduction = await listById(id);
+
+    if (fullProduction) {
+      return fullProduction;
+    }
+
+    return {
+      ...mapProductionRow(currentProduction),
+      productionStatus: persistedNextStatus,
     };
   } catch (error) {
     await client.query("ROLLBACK");
@@ -784,4 +898,5 @@ export const productionRepository = {
   findAll,
   create,
   complete,
+  advanceStatus,
 };
