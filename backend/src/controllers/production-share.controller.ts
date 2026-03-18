@@ -91,6 +91,9 @@ const getPublicProductionImageByToken = asyncHandler(async (req: Request, res: R
   const imageId = req.params.imageId;
   const image = await productionShareService.getPublicProductionImageByToken(token, imageId);
 
+  // Allow rendering this image in public frontend pages served from a different origin.
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Content-Type", image.mimeType);
   res.setHeader("Content-Length", String(image.fileSize));
   res.setHeader("Cache-Control", "public, max-age=300");
