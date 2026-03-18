@@ -18,6 +18,18 @@ Base URL:
 - Principal: `POST /api/productions/:id/share-link`
 - Alias de compatibilidade: `POST /api/productions/:id/share`
 
+## Endpoints para upload de imagens da producao (autenticado)
+
+- `GET /api/productions/:id/images`
+- `POST /api/productions/:id/images`
+
+Contrato de upload:
+
+- `multipart/form-data`
+- campo de arquivo: `images`
+- suporta multiplos arquivos (max 10 por requisicao)
+- cada arquivo ate 8MB
+
 Resposta esperada:
 
 ```json
@@ -57,6 +69,16 @@ Resposta esperada:
         "unit": "chapas"
       }
     ],
+    "images": [
+      {
+        "id": "uuid",
+        "fileName": "acabamento-1.jpg",
+        "mimeType": "image/jpeg",
+        "fileSize": 245761,
+        "createdAt": "2026-03-18T10:45:00.000Z",
+        "url": "/api/public/productions/<token>/images/<imageId>"
+      }
+    ],
     "observations": "texto",
     "updatedAt": "2026-03-18T10:45:00.000Z"
   }
@@ -69,6 +91,12 @@ Resposta esperada:
 - `createProductionShareLink(productionId: string)`:
   - tenta `POST /productions/:id/share-link`
   - se receber 404/405 por compatibilidade, tenta `POST /productions/:id/share`
+- `uploadProductionImages(productionId: string, files: File[])`:
+  - monta `FormData`
+  - adiciona cada arquivo no campo `images`
+  - chama `POST /productions/:id/images`
+- `listProductionImages(productionId: string)`:
+  - chama `GET /productions/:id/images`
 - `getPublicProductionByToken(token: string)`:
   - tenta os 3 GET publicos em sequencia ate obter 200.
 
@@ -78,6 +106,10 @@ Resposta esperada:
   - chama createProductionShareLink
   - copia `data.url` para clipboard
   - mostra toast de sucesso
+- Adicionar upload de imagens da producao:
+  - input `type=file` com `multiple` e `accept="image/*"`
+  - botao "Enviar imagens" chamando uploadProductionImages
+  - apos upload, atualizar lista de imagens da producao
 - Tratar erros:
   - `401`: redirecionar login
   - `403`: sem permissao
@@ -90,6 +122,10 @@ Resposta esperada:
 - Fazer polling a cada 30s para manter status atualizado:
   - refetch silencioso
   - atualizar badge/status e data de ultima atualizacao
+- Renderizar galeria de imagens (`data.images`):
+  - se `url` comeca com `/`, prefixar com `${VITE_API_URL}`
+  - usar `<img loading="lazy" />`
+  - fallback visual se nao houver imagens
 - Se endpoint retornar `404`: mostrar "Link invalido ou expirado".
 
 4. Mapa de status para UX
@@ -105,5 +141,7 @@ Resposta esperada:
 
 1. Clicar em compartilhar gera link sem 404.
 2. Pagina publica abre com token e exibe dados de producao.
-3. Polling atualiza status automaticamente sem recarregar pagina.
-4. Frontend suporta os aliases de endpoint para compatibilidade retroativa.
+3. Pagina interna permite upload de multiplas imagens por producao.
+4. Pagina publica renderiza as imagens enviadas.
+5. Polling atualiza status e novas imagens automaticamente sem recarregar pagina.
+6. Frontend suporta os aliases de endpoint para compatibilidade retroativa.

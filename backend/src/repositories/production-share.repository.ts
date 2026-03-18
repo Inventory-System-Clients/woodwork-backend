@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import { PoolClient } from "pg";
 import { pool } from "../database/postgres";
 import {
+  ProductionImage,
+  ProductionImageUploadInput,
+  PublicProductionImage,
+  PublicProductionImageFile,
   PublicProductionMaterial,
   PublicProductionView,
 } from "../models/production-share.model";
@@ -33,6 +37,19 @@ interface PublicProductionRow {
   unit: string | null;
 }
 
+interface ProductionImageRow {
+  id: string;
+  production_id: string;
+  file_name: string;
+  mime_type: string;
+  file_size: string | number;
+  created_at: string | Date;
+}
+
+interface ProductionImageFileRow extends ProductionImageRow {
+  image_data: Buffer;
+}
+
 interface CreateProductionShareLinkInput {
   productionId: string;
   tokenHash: string;
@@ -40,7 +57,14 @@ interface CreateProductionShareLinkInput {
   expiresAt: Date;
 }
 
+interface CreateProductionImagesInput {
+  productionId: string;
+  createdByUserId: string;
+  images: ProductionImageUploadInput[];
+}
+
 let productionOrderMaterialsProductIdColumnExists: boolean | null = null;
+let productionImagesTableExists: boolean | null = null;
 
 interface DatabaseErrorLike {
   code?: string;
@@ -106,6 +130,56 @@ function normalizeProductionStatus(status: string): ProductionStatus {
   return STATUS_ALIASES[normalizedStatus] ?? "pending";
 }
 
+function mapProductionImageRow(row: ProductionImageRow): ProductionImage {
+  return {
+    id: row.id,
+    productionId: row.production_id,
+    fileName: row.file_name,
+    mimeType: row.mime_type,
+    fileSize: toNumber(row.file_size),
+    createdAt: toDateString(row.created_at) ?? new Date().toISOString(),
+  };
+}
+
+function mapPublicProductionImageRow(row: ProductionImageRow): PublicProductionImage {
+  return {
+    id: row.id,
+    fileName: row.file_name,
+    mimeType: row.mime_type,
+    fileSize: toNumber(row.file_size),
+    createdAt: toDateString(row.created_at) ?? new Date().toISOString(),
+  };
+}
+
+function mapPublicProductionImageFileRow(row: ProductionImageFileRow): PublicProductionImageFile {
+  return {
+    id: row.id,
+    fileName: row.file_name,
+    mimeType: row.mime_type,
+    fileSize: toNumber(row.file_size),
+    data: row.image_data,
+  };
+}
+
+function isSchemaError(error: unknown): boolean {
+  const dbError = toDatabaseErrorLike(error);
+  return dbError.code === "42P01" || dbError.code === "42703";
+}
+
+function referencesProductionImagesSchema(error: unknown): boolean {
+  const dbError = toDatabaseErrorLike(error);
+  const message = (dbError.message ?? "").toLowerCase();
+  const table = (dbError.table ?? "").toLowerCase();
+  const column = (dbError.column ?? "").toLowerCase();
+
+  return (
+    table === "production_images" ||
+    message.includes("production_images") ||
+    column === "image_data" ||
+    message.includes("image_data")
+  );
+}
+
 function normalizeSchemaError(error: unknown): never {
   const dbError = toDatabaseErrorLike(error);
   const code = dbError.code;
@@ -124,6 +198,21 @@ function normalizeSchemaError(error: unknown): never {
         ],
       },
     );
+  }
+
+  throw error;
+}
+
+function normalizeImagesSchemaError(error: unknown): never {
+  const dbError = toDatabaseErrorLike(error);
+
+  if (dbError.code === "42P01" || dbError.code === "42703") {
+    throw new AppError("Production images schema is not configured. Run sql/20260318_create_production_images.sql", 500, {
+      code: dbError.code,
+      table: dbError.table ?? null,
+      column: dbError.column ?? null,
+      suggestedMigrations: ["sql/20260318_create_production_images.sql"],
+    });
   }
 
   throw error;
@@ -150,6 +239,46 @@ async function hasProductionOrderMaterialsProductIdColumn(): Promise<boolean> {
   return productionOrderMaterialsProductIdColumnExists;
 }
 
+async function hasProductionImagesTable(): Promise<boolean> {
+  if (productionImagesTableExists !== null) {
+    return productionImagesTableExists;
+  }
+
+  const result = await pool.query<{ exists: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'production_images'
+      ) AS exists;
+    `,
+  );
+
+  productionImagesTableExists = Boolean(result.rows[0]?.exists);
+  return productionImagesTableExists;
+}
+
+async function ensureProductionImagesSchema(client: PoolClient): Promise<void> {
+  const result = await client.query<{ exists: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'production_images'
+      ) AS exists;
+    `,
+  );
+
+  const exists = Boolean(result.rows[0]?.exists);
+  productionImagesTableExists = exists;
+
+  if (!exists) {
+    throw new AppError("Production images schema is not configured. Run sql/20260318_create_production_images.sql", 500);
+  }
+}
+
 async function findProductionById(client: PoolClient, productionId: string): Promise<ProductionExistsRow | undefined> {
   const result = await client.query<ProductionExistsRow>(
     `
@@ -157,6 +286,22 @@ async function findProductionById(client: PoolClient, productionId: string): Pro
       FROM public.production_orders
       WHERE id::text = $1
       FOR UPDATE;
+    `,
+    [productionId],
+  );
+
+  return result.rows[0];
+}
+
+async function findProductionByIdWithoutLock(
+  client: PoolClient,
+  productionId: string,
+): Promise<ProductionExistsRow | undefined> {
+  const result = await client.query<ProductionExistsRow>(
+    `
+      SELECT id::text AS id
+      FROM public.production_orders
+      WHERE id::text = $1;
     `,
     [productionId],
   );
@@ -295,6 +440,7 @@ function mapProductionRows(rows: PublicProductionRow[]): PublicProductionView | 
     deliveryDate: toDateString(firstRow.delivery_date),
     installationTeam: firstRow.installation_team,
     materials: [],
+    images: [],
     observations: firstRow.description,
     updatedAt: toDateString(firstRow.updated_at) ?? new Date().toISOString(),
   };
@@ -308,6 +454,44 @@ function mapProductionRows(rows: PublicProductionRow[]): PublicProductionView | 
   }
 
   return production;
+}
+
+async function findPublicImagesByProductionId(productionId: string): Promise<PublicProductionImage[]> {
+  const hasImagesTable = await hasProductionImagesTable();
+
+  if (!hasImagesTable) {
+    return [];
+  }
+
+  try {
+    const result = await pool.query<ProductionImageRow>(
+      `
+        SELECT
+          id,
+          production_id,
+          file_name,
+          mime_type,
+          file_size,
+          created_at
+        FROM public.production_images
+        WHERE production_id = $1
+        ORDER BY created_at ASC;
+      `,
+      [productionId],
+    );
+
+    return result.rows.map(mapPublicProductionImageRow);
+  } catch (error) {
+    if (isSchemaError(error) && referencesProductionImagesSchema(error)) {
+      console.warn("[production-share][repository][findPublicImagesByProductionId] Images schema unavailable, returning empty list", {
+        productionId,
+      });
+      productionImagesTableExists = false;
+      return [];
+    }
+
+    throw error;
+  }
 }
 
 async function findPublicProductionByTokenHash(tokenHash: string): Promise<PublicProductionView | undefined> {
@@ -368,11 +552,16 @@ async function findPublicProductionByTokenHash(tokenHash: string): Promise<Publi
 
     const mappedProduction = mapProductionRows(result.rows);
 
+    if (mappedProduction) {
+      mappedProduction.images = await findPublicImagesByProductionId(mappedProduction.id);
+    }
+
     console.info("[production-share][repository][findPublicByTokenHash] Shared production loaded", {
       tokenHashPrefix: tokenHashPrefix(tokenHash),
       shareLinkId,
       productionId: mappedProduction?.id,
       materialsCount: mappedProduction?.materials.length ?? 0,
+      imagesCount: mappedProduction?.images.length ?? 0,
       status: mappedProduction?.productionStatus,
     });
 
@@ -397,7 +586,200 @@ async function findPublicProductionByTokenHash(tokenHash: string): Promise<Publi
   }
 }
 
+async function createProductionImages(
+  input: CreateProductionImagesInput,
+): Promise<ProductionImage[] | undefined> {
+  const client = await pool.connect();
+
+  try {
+    console.info("[production-share][repository][createProductionImages] Starting", {
+      productionId: input.productionId,
+      createdByUserId: input.createdByUserId,
+      filesCount: input.images.length,
+    });
+
+    await client.query("BEGIN");
+    await ensureProductionImagesSchema(client);
+
+    const production = await findProductionById(client, input.productionId);
+
+    if (!production) {
+      console.warn("[production-share][repository][createProductionImages] Production not found", {
+        productionId: input.productionId,
+      });
+      await client.query("ROLLBACK");
+      return undefined;
+    }
+
+    const createdImages: ProductionImage[] = [];
+
+    for (const image of input.images) {
+      const result = await client.query<ProductionImageRow>(
+        `
+          INSERT INTO public.production_images (
+            id,
+            production_id,
+            file_name,
+            mime_type,
+            file_size,
+            image_data,
+            created_by_user_id
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+          RETURNING
+            id,
+            production_id,
+            file_name,
+            mime_type,
+            file_size,
+            created_at;
+        `,
+        [
+          randomUUID(),
+          input.productionId,
+          image.fileName,
+          image.mimeType,
+          image.fileSize,
+          image.data,
+          input.createdByUserId,
+        ],
+      );
+
+      if (result.rows[0]) {
+        createdImages.push(mapProductionImageRow(result.rows[0]));
+      }
+    }
+
+    await client.query("COMMIT");
+
+    console.info("[production-share][repository][createProductionImages] Images created", {
+      productionId: input.productionId,
+      createdCount: createdImages.length,
+    });
+
+    return createdImages;
+  } catch (error) {
+    const dbError = toDatabaseErrorLike(error);
+
+    console.error("[production-share][repository][createProductionImages] Failed", {
+      productionId: input.productionId,
+      createdByUserId: input.createdByUserId,
+      filesCount: input.images.length,
+      code: dbError.code,
+      message: dbError.message,
+      detail: dbError.detail,
+      hint: dbError.hint,
+      schema: dbError.schema,
+      table: dbError.table,
+      column: dbError.column,
+      constraint: dbError.constraint,
+      routine: dbError.routine,
+    });
+
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("[production-share][repository][createProductionImages] Rollback failed", {
+        productionId: input.productionId,
+        message: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+      });
+    }
+
+    normalizeImagesSchemaError(error);
+  } finally {
+    client.release();
+  }
+}
+
+async function listProductionImages(productionId: string): Promise<ProductionImage[] | undefined> {
+  const client = await pool.connect();
+
+  try {
+    await ensureProductionImagesSchema(client);
+
+    const production = await findProductionByIdWithoutLock(client, productionId);
+
+    if (!production) {
+      return undefined;
+    }
+
+    const result = await client.query<ProductionImageRow>(
+      `
+        SELECT
+          id,
+          production_id,
+          file_name,
+          mime_type,
+          file_size,
+          created_at
+        FROM public.production_images
+        WHERE production_id = $1
+        ORDER BY created_at ASC;
+      `,
+      [productionId],
+    );
+
+    return result.rows.map(mapProductionImageRow);
+  } catch (error) {
+    normalizeImagesSchemaError(error);
+  } finally {
+    client.release();
+  }
+}
+
+async function findPublicProductionImageFileByTokenHash(
+  tokenHash: string,
+  imageId: string,
+): Promise<PublicProductionImageFile | undefined> {
+  const hasImagesTable = await hasProductionImagesTable();
+
+  if (!hasImagesTable) {
+    return undefined;
+  }
+
+  try {
+    const result = await pool.query<ProductionImageFileRow>(
+      `
+        SELECT
+          pi.id,
+          pi.production_id,
+          pi.file_name,
+          pi.mime_type,
+          pi.file_size,
+          pi.created_at,
+          pi.image_data
+        FROM public.production_share_links psl
+        INNER JOIN public.production_images pi
+          ON pi.production_id = psl.production_id
+        WHERE psl.token_hash = $1
+          AND psl.revoked_at IS NULL
+          AND (psl.expires_at IS NULL OR psl.expires_at > NOW())
+          AND pi.id = $2
+        LIMIT 1;
+      `,
+      [tokenHash, imageId],
+    );
+
+    const row = result.rows[0];
+    return row ? mapPublicProductionImageFileRow(row) : undefined;
+  } catch (error) {
+    if (isSchemaError(error) && referencesProductionImagesSchema(error)) {
+      console.warn("[production-share][repository][findPublicImageByTokenHash] Images schema unavailable", {
+        tokenHashPrefix: tokenHashPrefix(tokenHash),
+        imageId,
+      });
+      productionImagesTableExists = false;
+      return undefined;
+    }
+
+    normalizeSchemaError(error);
+  }
+}
+
 export const productionShareRepository = {
   createShareLink,
   findPublicProductionByTokenHash,
+  createProductionImages,
+  listProductionImages,
+  findPublicProductionImageFileByTokenHash,
 };

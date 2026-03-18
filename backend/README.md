@@ -71,9 +71,14 @@ npm run build
 - `PATCH /api/productions/:id/complete`
 - `POST /api/productions/:id/share-link`
 - `POST /api/productions/:id/share`
+- `GET /api/productions/:id/images`
+- `POST /api/productions/:id/images`
 - `GET /api/public/productions/:token`
 - `GET /api/productions/public/:token`
 - `GET /api/productions/shared/:token`
+- `GET /api/public/productions/:token/images/:imageId`
+- `GET /api/productions/public/:token/images/:imageId`
+- `GET /api/productions/shared/:token/images/:imageId`
 - `GET /api/employees`
 - `GET /api/employees/:id`
 - `POST /api/employees`
@@ -104,6 +109,7 @@ To create employees, teams, and team-member relationships, run this script in Po
 - `sql/20260318_expand_production_status_flow.sql` (required to support production workflow stages)
 - `sql/20260318_create_clients.sql` (required for clients API)
 - `sql/20260318_create_production_share_links.sql` (required for production public sharing links)
+- `sql/20260318_create_production_images.sql` (required for production image uploads)
 
 If `public.products` does not exist yet in your database, this migration creates a minimal products table automatically.
 
@@ -145,6 +151,9 @@ Endpoints:
 - `GET /api/public/productions/:token` (public)
 - `GET /api/productions/public/:token` (public alias)
 - `GET /api/productions/shared/:token` (public alias)
+- `GET /api/public/productions/:token/images/:imageId` (public image content)
+- `GET /api/productions/public/:token/images/:imageId` (public image alias)
+- `GET /api/productions/shared/:token/images/:imageId` (public image alias)
 
 Share-link creation response:
 
@@ -177,6 +186,16 @@ Public production response:
 				"unit": "chapas"
 			}
 		],
+		"images": [
+			{
+				"id": "uuid",
+				"fileName": "corte-lateral.jpg",
+				"mimeType": "image/jpeg",
+				"fileSize": 245761,
+				"createdAt": "2026-03-18T13:20:00.000Z",
+				"url": "/api/public/productions/<token>/images/<imageId>"
+			}
+		],
 		"observations": "Armario planejado",
 		"updatedAt": "2026-03-18T10:45:00.000Z"
 	}
@@ -189,6 +208,38 @@ Rules:
 - Creating a new link revokes previous active links for the same production.
 - Public endpoint returns `404` when token is invalid, expired, or revoked.
 - Public endpoint reads live DB data for polling and status updates.
+- Public response includes production images with URL for direct rendering in `<img src="...">`.
+
+## Production images API
+
+Authenticated endpoints (`admin|gerente`):
+
+- `GET /api/productions/:id/images`
+- `POST /api/productions/:id/images`
+
+Upload contract:
+
+- `Content-Type: multipart/form-data`
+- Field name: `images` (supports multiple files, max 10 files/request)
+- Max file size: 8MB per file
+- Allowed mime types: `image/*`
+
+Upload response:
+
+```json
+{
+	"data": [
+		{
+			"id": "uuid",
+			"productionId": "2",
+			"fileName": "acabamento-1.png",
+			"mimeType": "image/png",
+			"fileSize": 934221,
+			"createdAt": "2026-03-18T13:40:00.000Z"
+		}
+	]
+}
+```
 
 Bootstrap users created by `sql/20260317_add_employee_auth_roles.sql`:
 
@@ -206,6 +257,7 @@ Bootstrap users created by `sql/20260317_add_employee_auth_roles.sql`:
 - `admin` and `gerente` can manage products and stock movements.
 - `admin` and `gerente` can manage clients.
 - `admin` and `gerente` can create production share links.
+- `admin` and `gerente` can upload/list production images.
 - `funcionario` cannot create/complete productions and cannot access employees/teams/users management routes.
 - `funcionario` cannot access budgets routes.
 - `funcionario` cannot access products and stock movement routes.

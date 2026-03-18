@@ -1,4 +1,5 @@
 import { NextFunction, Request, Response } from "express";
+import { MulterError } from "multer";
 import { ZodError } from "zod";
 import { AppError } from "../utils/app-error";
 
@@ -45,6 +46,24 @@ export function errorMiddleware(
     res.status(400).json({
       message: "Validation error",
       errors: error.flatten(),
+    });
+    return;
+  }
+
+  if (error instanceof MulterError) {
+    console.warn("[error-middleware][multer]", {
+      method: req.method,
+      route,
+      code: error.code,
+      message: error.message,
+    });
+
+    res.status(400).json({
+      message: "Invalid upload request",
+      details: {
+        code: error.code,
+        message: error.message,
+      },
     });
     return;
   }
