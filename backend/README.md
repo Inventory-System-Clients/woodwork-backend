@@ -94,6 +94,7 @@ To create employees, teams, and team-member relationships, run this script in Po
 - `sql/20260317_create_budgets.sql`
 - `sql/20260317_add_logistics_indexes.sql` (optional, for query performance)
 - `sql/20260317_add_product_stock_movements.sql` (required for products API, stock movements API, and stock deduction on budget/production approval)
+- `sql/20260318_add_low_stock_alert_to_products.sql` (required to add product low stock alert threshold)
 - `sql/20260318_create_clients.sql` (required for clients API)
 
 If `public.products` does not exist yet in your database, this migration creates a minimal products table automatically.
@@ -154,8 +155,9 @@ Endpoints:
 
 Rules:
 
-- Product create payload: `name`, `stockQuantity`.
-- Product update payload: `name`.
+- Product create payload: `name`, `stockQuantity`, `lowStockAlertQuantity`.
+- Product update payload: `name`, `lowStockAlertQuantity`.
+- Product response includes `lowStockAlertQuantity` (threshold used by frontend to flag low stock).
 - Stock movement create payload: `productId`, `movementType`, `quantity`, `unit`, `reason`, `referenceType`, `referenceId`.
 - `POST /api/stock/movements` is transactional:
 	- `entrada` increments `products.stock_quantity`.

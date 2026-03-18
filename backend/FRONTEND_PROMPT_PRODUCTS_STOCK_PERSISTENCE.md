@@ -36,7 +36,8 @@ Endpoints de Produtos:
 Payload:
 {
   "name": "string",
-  "stockQuantity": 0
+  "stockQuantity": 0,
+  "lowStockAlertQuantity": 0
 }
 
 4. PATCH `/api/products/:id`
@@ -44,7 +45,8 @@ Payload:
 
 Payload:
 {
-  "name": "string"
+  "name": "string",
+  "lowStockAlertQuantity": 0
 }
 
 Contrato de resposta (produto):
@@ -53,6 +55,7 @@ Contrato de resposta (produto):
     "id": "string",
     "name": "string",
     "stockQuantity": 0,
+    "lowStockAlertQuantity": 0,
     "createdAt": "ISO string",
     "updatedAt": "ISO string"
   }
@@ -138,16 +141,22 @@ Implementacao frontend sugerida:
 - Ao abrir a aba Produtos: chamar `GET /api/products`.
 - Ao criar produto: chamar `POST /api/products` e atualizar lista com retorno remoto.
 - Ao editar produto: chamar `PATCH /api/products/:id` e atualizar item na lista.
+- Incluir campo `lowStockAlertQuantity` no formulario de criar/editar produto.
 - Remover geracao local de ids como fonte principal.
 
-3. Estado da tela Estoque
+3. Alertas de estoque baixo
+- Considerar produto em alerta quando `stockQuantity <= lowStockAlertQuantity`.
+- Exibir badge/cor de alerta na listagem quando produto estiver abaixo/igual ao limite.
+- Atualizar alertas apos qualquer movimentacao de estoque ou refresh da lista de produtos.
+
+4. Estado da tela Estoque
 - Ao abrir a aba Estoque: chamar `GET /api/stock/movements`.
 - Ao registrar entrada/saida: chamar `POST /api/stock/movements`.
 - Em sucesso de movimentacao:
   - atualizar lista de movimentacoes
   - atualizar lista de produtos (estoque atual)
 
-4. Erros
+5. Erros
 - 401: redirecionar para login.
 - 403: mostrar acesso negado.
 - 404: produto nao encontrado.
@@ -161,3 +170,4 @@ Criterios de aceite:
 3. Movimentacao de estoque gera registro em lista de movimentacoes apos refresh.
 4. Saldo de estoque do produto muda conforme entradas/saidas registradas.
 5. Saida sem saldo suficiente retorna erro 409 com feedback amigavel na UI.
+6. Produtos com `stockQuantity <= lowStockAlertQuantity` aparecem como alerta de estoque baixo.

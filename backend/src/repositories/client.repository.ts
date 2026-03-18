@@ -83,11 +83,20 @@ function mapClientRow(row: ClientRow): Client {
   };
 }
 
-function normalizeSchemaError(error: unknown): never {
+function normalizePersistenceError(error: unknown): never {
   const code = (error as { code?: string }).code;
+  const constraint = (error as { constraint?: string }).constraint;
 
   if (code === "42P01" || code === "42703") {
     throw new AppError("Clients schema is not configured. Run sql/20260318_create_clients.sql", 500);
+  }
+
+  if (code === "23505" && constraint === "idx_clients_email_unique") {
+    throw new AppError("Client email is already in use", 409);
+  }
+
+  if (code === "23505" && constraint === "idx_clients_document_unique") {
+    throw new AppError("Client document is already in use", 409);
   }
 
   throw error;
@@ -134,7 +143,7 @@ async function findAll(search?: string, isActive?: boolean): Promise<Client[]> {
 
     return result.rows.map(mapClientRow);
   } catch (error) {
-    normalizeSchemaError(error);
+    normalizePersistenceError(error);
   }
 }
 
@@ -171,7 +180,7 @@ async function findById(id: string): Promise<Client | undefined> {
 
     return result.rows[0] ? mapClientRow(result.rows[0]) : undefined;
   } catch (error) {
-    normalizeSchemaError(error);
+    normalizePersistenceError(error);
   }
 }
 
@@ -209,7 +218,7 @@ async function findByEmail(email: string): Promise<Client | undefined> {
 
     return result.rows[0] ? mapClientRow(result.rows[0]) : undefined;
   } catch (error) {
-    normalizeSchemaError(error);
+    normalizePersistenceError(error);
   }
 }
 
@@ -247,7 +256,7 @@ async function findByDocument(document: string): Promise<Client | undefined> {
 
     return result.rows[0] ? mapClientRow(result.rows[0]) : undefined;
   } catch (error) {
-    normalizeSchemaError(error);
+    normalizePersistenceError(error);
   }
 }
 
@@ -322,7 +331,7 @@ async function create(payload: CreateClientInput): Promise<Client> {
 
     return mapClientRow(result.rows[0]);
   } catch (error) {
-    normalizeSchemaError(error);
+    normalizePersistenceError(error);
   }
 }
 
@@ -397,7 +406,7 @@ async function update(id: string, payload: SaveClientInput): Promise<Client | un
 
     return result.rows[0] ? mapClientRow(result.rows[0]) : undefined;
   } catch (error) {
-    normalizeSchemaError(error);
+    normalizePersistenceError(error);
   }
 }
 
@@ -413,7 +422,7 @@ async function remove(id: string): Promise<boolean> {
 
     return result.rowCount === 1;
   } catch (error) {
-    normalizeSchemaError(error);
+    normalizePersistenceError(error);
   }
 }
 

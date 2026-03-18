@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS public.clients (
 );
 
 ALTER TABLE public.clients
+ADD COLUMN IF NOT EXISTS name TEXT;
+
+ALTER TABLE public.clients
 ADD COLUMN IF NOT EXISTS company_name TEXT;
 
 ALTER TABLE public.clients
@@ -78,6 +81,13 @@ ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 UPDATE public.clients
 SET metadata = '{}'::jsonb
 WHERE metadata IS NULL;
+
+UPDATE public.clients
+SET name = COALESCE(NULLIF(BTRIM(name), ''), NULLIF(BTRIM(company_name), ''), 'Cliente sem nome')
+WHERE name IS NULL OR BTRIM(name) = '';
+
+ALTER TABLE public.clients
+ALTER COLUMN name SET NOT NULL;
 
 ALTER TABLE public.clients
 ALTER COLUMN metadata SET DEFAULT '{}'::jsonb;

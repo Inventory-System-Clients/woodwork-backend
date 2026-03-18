@@ -37,12 +37,17 @@ async function updateProduct(id: string, payload: UpdateProductInput): Promise<P
   }
 
   const nextName = payload.name ?? existingProduct.name;
+  const nextLowStockAlertQuantity =
+    payload.lowStockAlertQuantity ?? existingProduct.lowStockAlertQuantity;
 
   if (nextName !== existingProduct.name) {
     await ensureProductNameAvailable(nextName, id);
   }
 
-  const updatedProduct = await productRepository.update(id, { name: nextName });
+  const updatedProduct = await productRepository.update(id, {
+    name: nextName,
+    lowStockAlertQuantity: nextLowStockAlertQuantity,
+  });
 
   if (!updatedProduct) {
     throw new AppError("Product not found", 404);

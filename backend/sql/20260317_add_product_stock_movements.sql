@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS public.products (
   id TEXT PRIMARY KEY,
   name TEXT,
   stock_quantity NUMERIC(14,3) NOT NULL DEFAULT 0,
+  low_stock_alert_quantity NUMERIC(14,3) NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -11,6 +12,9 @@ ADD COLUMN IF NOT EXISTS name TEXT;
 
 ALTER TABLE public.products
 ADD COLUMN IF NOT EXISTS stock_quantity NUMERIC(14,3) NOT NULL DEFAULT 0;
+
+ALTER TABLE public.products
+ADD COLUMN IF NOT EXISTS low_stock_alert_quantity NUMERIC(14,3) NOT NULL DEFAULT 0;
 
 ALTER TABLE public.products
 ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
@@ -26,11 +30,18 @@ UPDATE public.products
 SET stock_quantity = 0
 WHERE stock_quantity IS NULL OR stock_quantity < 0;
 
+UPDATE public.products
+SET low_stock_alert_quantity = 0
+WHERE low_stock_alert_quantity IS NULL OR low_stock_alert_quantity < 0;
+
 ALTER TABLE public.products
 ALTER COLUMN name SET NOT NULL;
 
 ALTER TABLE public.products
 ALTER COLUMN stock_quantity SET NOT NULL;
+
+ALTER TABLE public.products
+ALTER COLUMN low_stock_alert_quantity SET NOT NULL;
 
 DO $$
 BEGIN
@@ -43,6 +54,20 @@ BEGIN
     ALTER TABLE public.products
       ADD CONSTRAINT chk_products_stock_quantity_non_negative
       CHECK (stock_quantity >= 0);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'chk_products_low_stock_alert_non_negative'
+      AND conrelid = 'public.products'::regclass
+  ) THEN
+    ALTER TABLE public.products
+      ADD CONSTRAINT chk_products_low_stock_alert_non_negative
+      CHECK (low_stock_alert_quantity >= 0);
   END IF;
 END $$;
 
@@ -91,6 +116,9 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS idx_products_stock_quantity
 ON public.products (stock_quantity);
+
+CREATE INDEX IF NOT EXISTS idx_products_low_stock_alert_quantity
+ON public.products (low_stock_alert_quantity);
 
 CREATE INDEX IF NOT EXISTS idx_products_name
 ON public.products (LOWER(name));

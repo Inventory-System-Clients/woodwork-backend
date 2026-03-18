@@ -7,12 +7,14 @@ interface ProductRow {
   id: string;
   name: string | null;
   stock_quantity: string | number;
+  low_stock_alert_quantity: string | number;
   created_at: string | Date;
   updated_at: string | Date;
 }
 
 interface SaveProductInput {
   name: string;
+  lowStockAlertQuantity: number;
 }
 
 function toNumber(value: string | number | null): number {
@@ -33,6 +35,7 @@ function mapProductRow(row: ProductRow): Product {
     id: row.id,
     name: row.name && row.name.trim().length > 0 ? row.name : row.id,
     stockQuantity: toNumber(row.stock_quantity),
+    lowStockAlertQuantity: toNumber(row.low_stock_alert_quantity),
     createdAt: toDateString(row.created_at),
     updatedAt: toDateString(row.updated_at),
   };
@@ -43,7 +46,7 @@ function normalizeSchemaError(error: unknown): never {
 
   if (code === "42P01" || code === "42703") {
     throw new AppError(
-      "Products schema is not configured. Run sql/20260317_add_product_stock_movements.sql",
+      "Products schema is not configured. Run sql/20260317_add_product_stock_movements.sql and sql/20260318_add_low_stock_alert_to_products.sql",
       500,
     );
   }
@@ -59,6 +62,7 @@ async function findAll(search?: string): Promise<Product[]> {
           id::text AS id,
           name,
           stock_quantity,
+          low_stock_alert_quantity,
           created_at,
           updated_at
         FROM public.products
@@ -82,6 +86,7 @@ async function findById(id: string): Promise<Product | undefined> {
           id::text AS id,
           name,
           stock_quantity,
+          low_stock_alert_quantity,
           created_at,
           updated_at
         FROM public.products
@@ -104,6 +109,7 @@ async function findByName(name: string): Promise<Product | undefined> {
           id::text AS id,
           name,
           stock_quantity,
+          low_stock_alert_quantity,
           created_at,
           updated_at
         FROM public.products
@@ -130,17 +136,19 @@ async function create(payload: CreateProductInput): Promise<Product> {
         INSERT INTO public.products (
           id,
           name,
-          stock_quantity
+          stock_quantity,
+          low_stock_alert_quantity
         )
-        VALUES ($1, $2, $3)
+        VALUES ($1, $2, $3, $4)
         RETURNING
           id::text AS id,
           name,
           stock_quantity,
+          low_stock_alert_quantity,
           created_at,
           updated_at;
       `,
-      [randomUUID(), payload.name, payload.stockQuantity],
+      [randomUUID(), payload.name, payload.stockQuantity, payload.lowStockAlertQuantity],
     );
 
     const product = mapProductRow(result.rows[0]);
@@ -180,16 +188,18 @@ async function update(id: string, payload: SaveProductInput): Promise<Product | 
         UPDATE public.products
         SET
           name = $2,
+          low_stock_alert_quantity = $3,
           updated_at = NOW()
         WHERE id::text = $1
         RETURNING
           id::text AS id,
           name,
           stock_quantity,
+          low_stock_alert_quantity,
           created_at,
           updated_at;
       `,
-      [id, payload.name],
+      [id, payload.name, payload.lowStockAlertQuantity],
     );
 
     return result.rows[0] ? mapProductRow(result.rows[0]) : undefined;
