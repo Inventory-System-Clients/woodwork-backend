@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { PoolClient } from "pg";
 import { pool } from "../database/postgres";
 import { Budget, BudgetMaterial, BudgetStatus, CreateBudgetInput } from "../models/budget.model";
+import { AppError } from "../utils/app-error";
 
 interface BudgetRow {
   id: string;
@@ -24,6 +25,18 @@ interface BudgetWithMaterialRow extends BudgetRow {
   unit_price: string | number | null;
 }
 
+interface BudgetMaterialUsageRow {
+  product_id: string | null;
+  product_name: string | null;
+  quantity: string | number;
+  unit: string | null;
+}
+
+interface ProductStockRow {
+  id: string;
+  stock_quantity: string | number;
+}
+
 type BudgetMaterialInput = {
   productId?: string;
   productName: string;
@@ -44,6 +57,11 @@ export interface SaveBudgetRecordInput {
   approvedAt: string | null;
   materials: BudgetMaterial[];
 }
+
+let productsTableExists: boolean | null = null;
+let productStockQuantityColumnExists: boolean | null = null;
+let productStockMovementsTableExists: boolean | null = null;
+let productNameColumnExists: boolean | null = null;
 
 function toDateString(value: string | Date | null): string | null {
   if (value === null) {
@@ -130,6 +148,237 @@ function groupRows(rows: BudgetWithMaterialRow[]): Budget[] {
   }
 
   return [...budgetsById.values()];
+}
+
+async function hasProductsTable(client: PoolClient): Promise<boolean> {
+  if (productsTableExists !== null) {
+    return productsTableExists;
+  }
+
+  const result = await client.query<{ exists: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'products'
+      ) AS exists;
+    `,
+  );
+
+  productsTableExists = Boolean(result.rows[0]?.exists);
+  return productsTableExists;
+}
+
+async function hasProductStockQuantityColumn(client: PoolClient): Promise<boolean> {
+  if (productStockQuantityColumnExists !== null) {
+    return productStockQuantityColumnExists;
+  }
+
+  const result = await client.query<{ exists: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'products'
+          AND column_name = 'stock_quantity'
+      ) AS exists;
+    `,
+  );
+
+  productStockQuantityColumnExists = Boolean(result.rows[0]?.exists);
+  return productStockQuantityColumnExists;
+}
+
+async function hasProductStockMovementsTable(client: PoolClient): Promise<boolean> {
+  if (productStockMovementsTableExists !== null) {
+    return productStockMovementsTableExists;
+  }
+
+  const result = await client.query<{ exists: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'product_stock_movements'
+      ) AS exists;
+    `,
+  );
+
+  productStockMovementsTableExists = Boolean(result.rows[0]?.exists);
+  return productStockMovementsTableExists;
+}
+
+async function hasProductNameColumn(client: PoolClient): Promise<boolean> {
+  if (productNameColumnExists !== null) {
+    return productNameColumnExists;
+  }
+
+  const result = await client.query<{ exists: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'products'
+          AND column_name = 'name'
+      ) AS exists;
+    `,
+  );
+
+  productNameColumnExists = Boolean(result.rows[0]?.exists);
+  return productNameColumnExists;
+}
+
+async function ensureStockControlSchema(client: PoolClient): Promise<void> {
+  const hasProducts = await hasProductsTable(client);
+  const hasStockColumn = await hasProductStockQuantityColumn(client);
+  const hasMovements = await hasProductStockMovementsTable(client);
+
+  if (!hasProducts || !hasStockColumn || !hasMovements) {
+    throw new AppError(
+      "Stock control schema is not configured. Run sql/20260317_add_product_stock_movements.sql",
+      500,
+    );
+  }
+}
+
+async function resolveProductIdForBudgetMaterial(
+  client: PoolClient,
+  budgetId: string,
+  material: BudgetMaterialUsageRow,
+): Promise<string> {
+  if (material.product_id && material.product_id.trim().length > 0) {
+    return material.product_id.trim();
+  }
+
+  if (!material.product_name || material.product_name.trim().length === 0) {
+    throw new AppError("Cannot resolve product for stock deduction", 400, {
+      budgetId,
+      productName: material.product_name,
+    });
+  }
+
+  const canUseProductName = await hasProductNameColumn(client);
+
+  if (!canUseProductName) {
+    throw new AppError(
+      "Products table does not have name column. Run sql/20260317_add_product_stock_movements.sql",
+      500,
+    );
+  }
+
+  const productByNameResult = await client.query<{ id: string }>(
+    `
+      SELECT id::text AS id
+      FROM public.products
+      WHERE LOWER(BTRIM(name)) = LOWER(BTRIM($1))
+      ORDER BY id::text
+      LIMIT 2;
+    `,
+    [material.product_name],
+  );
+
+  if (productByNameResult.rows.length === 0) {
+    throw new AppError("Material product was not found in products table", 400, {
+      budgetId,
+      productName: material.product_name,
+    });
+  }
+
+  if (productByNameResult.rows.length > 1) {
+    throw new AppError("Multiple products found for material name", 409, {
+      budgetId,
+      productName: material.product_name,
+    });
+  }
+
+  return productByNameResult.rows[0].id;
+}
+
+async function deductBudgetMaterialsFromStock(client: PoolClient, budgetId: string): Promise<void> {
+  await ensureStockControlSchema(client);
+
+  const materialsResult = await client.query<BudgetMaterialUsageRow>(
+    `
+      SELECT
+        bm.product_id,
+        bm.product_name,
+        SUM(bm.quantity) AS quantity,
+        MAX(bm.unit) AS unit
+      FROM public.budget_materials bm
+      WHERE bm.budget_id = $1
+      GROUP BY bm.product_id, bm.product_name;
+    `,
+    [budgetId],
+  );
+
+  for (const material of materialsResult.rows) {
+    const quantityToDeduct = toNumber(material.quantity);
+    const resolvedProductId = await resolveProductIdForBudgetMaterial(client, budgetId, material);
+
+    if (quantityToDeduct <= 0) {
+      continue;
+    }
+
+    const stockUpdateResult = await client.query<ProductStockRow>(
+      `
+        UPDATE public.products
+        SET stock_quantity = stock_quantity - $1
+        WHERE id::text = $2
+          AND stock_quantity >= $1
+        RETURNING
+          id::text AS id,
+          stock_quantity;
+      `,
+      [quantityToDeduct, resolvedProductId],
+    );
+
+    if (stockUpdateResult.rows.length === 0) {
+      const productResult = await client.query<{ stock_quantity: string | number }>(
+        `
+          SELECT stock_quantity
+          FROM public.products
+          WHERE id::text = $1;
+        `,
+        [resolvedProductId],
+      );
+
+      if (productResult.rows.length === 0) {
+        throw new AppError("Material product was not found in products table", 400, {
+          budgetId,
+          productId: resolvedProductId,
+          productName: material.product_name,
+        });
+      }
+
+      throw new AppError("Insufficient stock to approve budget", 409, {
+        budgetId,
+        productId: resolvedProductId,
+        productName: material.product_name,
+        requestedQuantity: quantityToDeduct,
+        availableStock: toNumber(productResult.rows[0]?.stock_quantity ?? 0),
+      });
+    }
+
+    await client.query(
+      `
+        INSERT INTO public.product_stock_movements (
+          product_id,
+          movement_type,
+          quantity,
+          unit,
+          reason,
+          reference_type,
+          reference_id
+        )
+        VALUES ($1, 'saida', $2, $3, $4, 'budget', $5);
+      `,
+      [resolvedProductId, quantityToDeduct, material.unit, "Automatic outbound movement from budget approval", budgetId],
+    );
+  }
 }
 
 async function listByIdWithClient(client: PoolClient, id: string): Promise<Budget | undefined> {
@@ -359,15 +608,11 @@ async function approve(id: string): Promise<Budget | undefined> {
   const client = await pool.connect();
 
   try {
-    const result = await client.query<BudgetRow>(
+    await client.query("BEGIN");
+
+    const currentResult = await client.query<BudgetRow>(
       `
-        UPDATE public.budgets
-        SET
-          status = 'approved',
-          approved_at = COALESCE(approved_at, NOW()),
-          updated_at = NOW()
-        WHERE id = $1
-        RETURNING
+        SELECT
           id,
           client_name,
           description,
@@ -377,16 +622,43 @@ async function approve(id: string): Promise<Budget | undefined> {
           notes,
           approved_at,
           created_at,
-          updated_at;
+          updated_at
+        FROM public.budgets
+        WHERE id = $1
+        FOR UPDATE;
       `,
       [id],
     );
 
-    if (result.rows.length === 0) {
+    if (currentResult.rows.length === 0) {
+      await client.query("ROLLBACK");
       return undefined;
     }
 
+    const currentBudget = currentResult.rows[0];
+
+    if (currentBudget.status !== "approved") {
+      await deductBudgetMaterialsFromStock(client, id);
+
+      await client.query(
+        `
+          UPDATE public.budgets
+          SET
+            status = 'approved',
+            approved_at = COALESCE(approved_at, NOW()),
+            updated_at = NOW()
+          WHERE id = $1;
+        `,
+        [id],
+      );
+    }
+
+    await client.query("COMMIT");
+
     return listByIdWithClient(client, id);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
   } finally {
     client.release();
   }

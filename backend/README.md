@@ -88,7 +88,7 @@ To create employees, teams, and team-member relationships, run this script in Po
 - `sql/20260317_add_employee_auth_roles.sql`
 - `sql/20260317_create_budgets.sql`
 - `sql/20260317_add_logistics_indexes.sql` (optional, for query performance)
-- `sql/20260317_add_product_stock_movements.sql` (required for products API, stock movements API, and stock deduction on production completion)
+- `sql/20260317_add_product_stock_movements.sql` (required for products API, stock movements API, and stock deduction on budget/production approval)
 
 If `public.products` does not exist yet in your database, this migration creates a minimal products table automatically.
 
@@ -177,7 +177,20 @@ Business rules:
 - Near deadline: `delivery_date between today and today + 3 days` and active status.
 - On time: `delivery_date > today + 3 days` and active status.
 
-## Stock deduction on production completion
+## Stock deduction on budget and production approval
+
+When `PATCH /api/budgets/:id/approve` is called and the budget transitions to `approved`, backend now:
+
+- Deducts each material quantity from `products.stock_quantity`.
+- Inserts one outbound movement (`movement_type = 'saida'`) into `product_stock_movements` per product.
+- Executes all steps in a single DB transaction.
+- Prevents duplicate deduction if the budget is already `approved`.
+
+Error scenarios for budget approval:
+
+- `400`: a budget material does not have resolvable `productId`/`productName` or product does not exist.
+- `409`: insufficient stock for at least one material.
+- `500`: stock schema migration was not applied.
 
 When `PATCH /api/productions/:id/approve` (or `PATCH /api/productions/:id/complete`) is called and the production transitions to `approved`, backend now:
 
@@ -188,7 +201,7 @@ When `PATCH /api/productions/:id/approve` (or `PATCH /api/productions/:id/comple
 
 Error scenarios:
 
-- `400`: a production material does not have `productId` or product does not exist.
+- `400`: a production material does not have resolvable `productId`/`productName` or product does not exist.
 - `409`: insufficient stock for at least one material.
 - `500`: stock schema migration was not applied.
 

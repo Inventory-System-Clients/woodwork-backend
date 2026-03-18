@@ -36,7 +36,27 @@ async function getBudgetById(id: string): Promise<Budget> {
 }
 
 async function createBudget(payload: CreateBudgetInput): Promise<Budget> {
-  return budgetRepository.create(payload);
+  const shouldCreateAsApproved = payload.status === "approved";
+  const creationPayload: CreateBudgetInput = shouldCreateAsApproved
+    ? {
+        ...payload,
+        status: "pending",
+      }
+    : payload;
+
+  const budget = await budgetRepository.create(creationPayload);
+
+  if (!shouldCreateAsApproved) {
+    return budget;
+  }
+
+  const approvedBudget = await budgetRepository.approve(budget.id);
+
+  if (!approvedBudget) {
+    throw new AppError("Budget not found", 404);
+  }
+
+  return approvedBudget;
 }
 
 async function updateBudget(id: string, payload: UpdateBudgetInput): Promise<Budget> {
@@ -47,6 +67,7 @@ async function updateBudget(id: string, payload: UpdateBudgetInput): Promise<Bud
   }
 
   const nextStatus = payload.status ?? existingBudget.status;
+  const shouldApproveOnUpdate = existingBudget.status !== "approved" && nextStatus === "approved";
   const nextMaterials: Budget["materials"] = payload.materials
     ? payload.materials.map((material) => ({
         productId: material.productId,
@@ -60,11 +81,13 @@ async function updateBudget(id: string, payload: UpdateBudgetInput): Promise<Bud
   const updatedBudget = await budgetRepository.save(id, {
     clientName: payload.clientName ?? existingBudget.clientName,
     description: payload.description ?? existingBudget.description,
-    status: nextStatus,
+    status: shouldApproveOnUpdate ? existingBudget.status : nextStatus,
     deliveryDate: payload.deliveryDate !== undefined ? payload.deliveryDate : existingBudget.deliveryDate,
     totalPrice: payload.totalPrice ?? existingBudget.totalPrice,
     notes: payload.notes !== undefined ? payload.notes : existingBudget.notes,
-    approvedAt: resolveApprovedAt(existingBudget.status, nextStatus, existingBudget.approvedAt),
+    approvedAt: shouldApproveOnUpdate
+      ? existingBudget.approvedAt
+      : resolveApprovedAt(existingBudget.status, nextStatus, existingBudget.approvedAt),
     materials: nextMaterials,
   });
 
@@ -72,7 +95,17 @@ async function updateBudget(id: string, payload: UpdateBudgetInput): Promise<Bud
     throw new AppError("Budget not found", 404);
   }
 
-  return updatedBudget;
+  if (!shouldApproveOnUpdate) {
+    return updatedBudget;
+  }
+
+  const approvedBudget = await budgetRepository.approve(id);
+
+  if (!approvedBudget) {
+    throw new AppError("Budget not found", 404);
+  }
+
+  return approvedBudget;
 }
 
 async function approveBudget(id: string): Promise<Budget> {
