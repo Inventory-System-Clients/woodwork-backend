@@ -16,3 +16,5 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      - key: FRONTEND_PUBLIC_BASE_URL
+        value: https://maisquiosque.selfmachine.com.br

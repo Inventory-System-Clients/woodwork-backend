@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { productionController } from "../controllers/production.controller";
+import { productionShareController } from "../controllers/production-share.controller";
 import { requireAuth } from "../middlewares/auth.middleware";
 import { authorizeRoles } from "../middlewares/authorize.middleware";
 import { validateBody } from "../middlewares/validate.middleware";
@@ -33,5 +34,19 @@ productionRoutes.patch(
   authorizeRoles("admin", "gerente"),
   productionController.complete,
 );
+productionRoutes.post(
+  "/:id/share-link",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  productionShareController.createShareLink,
+);
+productionRoutes.post(
+  "/:id/share",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  productionShareController.createShareLink,
+);
+productionRoutes.get("/public/:token", productionShareController.getPublicProductionByToken);
+productionRoutes.get("/shared/:token", productionShareController.getPublicProductionByToken);
 
 export { productionRoutes };

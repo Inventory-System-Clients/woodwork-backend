@@ -69,6 +69,11 @@ npm run build
 - `PATCH /api/productions/:id/advance-status`
 - `PATCH /api/productions/:id/approve`
 - `PATCH /api/productions/:id/complete`
+- `POST /api/productions/:id/share-link`
+- `POST /api/productions/:id/share`
+- `GET /api/public/productions/:token`
+- `GET /api/productions/public/:token`
+- `GET /api/productions/shared/:token`
 - `GET /api/employees`
 - `GET /api/employees/:id`
 - `POST /api/employees`
@@ -98,6 +103,7 @@ To create employees, teams, and team-member relationships, run this script in Po
 - `sql/20260318_add_low_stock_alert_to_products.sql` (required to add product low stock alert threshold)
 - `sql/20260318_expand_production_status_flow.sql` (required to support production workflow stages)
 - `sql/20260318_create_clients.sql` (required for clients API)
+- `sql/20260318_create_production_share_links.sql` (required for production public sharing links)
 
 If `public.products` does not exist yet in your database, this migration creates a minimal products table automatically.
 
@@ -124,6 +130,66 @@ Behavior:
 - When transitioning to `approved`, backend deducts stock and creates outbound stock movements.
 - Calling `advance-status` on `delivered` keeps the production unchanged.
 
+## Production public sharing API
+
+Environment variable (optional):
+
+- `FRONTEND_PUBLIC_BASE_URL=https://seu-frontend.com`
+
+If this variable is empty, backend returns a relative URL in `data.url` (example: `/acompanhar-producao/<token>`).
+
+Endpoints:
+
+- `POST /api/productions/:id/share-link` (auth required, `admin|gerente`)
+- `POST /api/productions/:id/share` (auth required, alias)
+- `GET /api/public/productions/:token` (public)
+- `GET /api/productions/public/:token` (public alias)
+- `GET /api/productions/shared/:token` (public alias)
+
+Share-link creation response:
+
+```json
+{
+	"data": {
+		"token": "string-seguro",
+		"url": "https://frontend/acompanhar-producao/<token>",
+		"expiresAt": "2026-04-17T14:00:00.000Z"
+	}
+}
+```
+
+Public production response:
+
+```json
+{
+	"data": {
+		"id": "uuid",
+		"clientName": "Cliente X",
+		"description": "Armario planejado",
+		"productionStatus": "cutting",
+		"deliveryDate": "2026-03-25T00:00:00.000Z",
+		"installationTeam": "Equipe Norte",
+		"materials": [
+			{
+				"productId": "uuid",
+				"productName": "MDF Branco 18mm",
+				"quantity": 6,
+				"unit": "chapas"
+			}
+		],
+		"observations": "Armario planejado",
+		"updatedAt": "2026-03-18T10:45:00.000Z"
+	}
+}
+```
+
+Rules:
+
+- Tokens are generated with cryptographic randomness and only token hash is stored in DB.
+- Creating a new link revokes previous active links for the same production.
+- Public endpoint returns `404` when token is invalid, expired, or revoked.
+- Public endpoint reads live DB data for polling and status updates.
+
 Bootstrap users created by `sql/20260317_add_employee_auth_roles.sql`:
 
 - `admin@backwood.com` (`admin`)
@@ -139,11 +205,13 @@ Bootstrap users created by `sql/20260317_add_employee_auth_roles.sql`:
 - `admin` and `gerente` can manage budgets.
 - `admin` and `gerente` can manage products and stock movements.
 - `admin` and `gerente` can manage clients.
+- `admin` and `gerente` can create production share links.
 - `funcionario` cannot create/complete productions and cannot access employees/teams/users management routes.
 - `funcionario` cannot access budgets routes.
 - `funcionario` cannot access products and stock movement routes.
 - `funcionario` cannot access clients routes.
 - `funcionario` can list productions, but only from teams where this employee is a member.
+- Public tracking routes do not require authentication.
 - `GET /api/logistics/summary` is available only for `admin` and `gerente`.
 
 ## Clients API
@@ -280,6 +348,7 @@ If you prefer a manual setup, use these values in a **Web Service**:
 - Environment Variable: `NODE_ENV=production`
 - Environment Variable: `DATABASE_URL=<your_postgresql_connection_string>`
 - Environment Variable: `JWT_SECRET=<a-strong-secret-with-at-least-16-characters>`
+- Environment Variable: `FRONTEND_PUBLIC_BASE_URL=https://maisquiosque.selfmachine.com.br`
 
 After the first deploy, your API should be available at:
 
