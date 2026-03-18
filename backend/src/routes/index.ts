@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { authRoutes } from "./auth.routes";
 import { budgetRoutes } from "./budget.routes";
+import { clientRoutes } from "./client.routes";
 import { employeeRoutes } from "./employee.routes";
 import { healthRoutes } from "./health.routes";
 import { logisticsRoutes } from "./logistics.routes";
@@ -14,6 +15,7 @@ const apiRoutes = Router();
 
 apiRoutes.use("/health", healthRoutes);
 apiRoutes.use("/auth", authRoutes);
+apiRoutes.use("/clients", clientRoutes);
 apiRoutes.use("/logistics", logisticsRoutes);
 apiRoutes.use("/budgets", budgetRoutes);
 apiRoutes.use("/products", productRoutes);

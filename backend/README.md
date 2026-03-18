@@ -47,6 +47,11 @@ npm run build
 - `GET /api/auth/me`
 - `GET /api/logistics/summary`
 - `GET /api/health`
+- `GET /api/clients`
+- `GET /api/clients/:id`
+- `POST /api/clients`
+- `PATCH /api/clients/:id`
+- `DELETE /api/clients/:id`
 - `GET /api/budgets`
 - `GET /api/budgets/:id`
 - `POST /api/budgets`
@@ -89,6 +94,7 @@ To create employees, teams, and team-member relationships, run this script in Po
 - `sql/20260317_create_budgets.sql`
 - `sql/20260317_add_logistics_indexes.sql` (optional, for query performance)
 - `sql/20260317_add_product_stock_movements.sql` (required for products API, stock movements API, and stock deduction on budget/production approval)
+- `sql/20260318_create_clients.sql` (required for clients API)
 
 If `public.products` does not exist yet in your database, this migration creates a minimal products table automatically.
 
@@ -108,11 +114,30 @@ Bootstrap users created by `sql/20260317_add_employee_auth_roles.sql`:
 - `admin` and `gerente` can manage employees, teams, and productions.
 - `admin` and `gerente` can manage budgets.
 - `admin` and `gerente` can manage products and stock movements.
+- `admin` and `gerente` can manage clients.
 - `funcionario` cannot create/complete productions and cannot access employees/teams/users management routes.
 - `funcionario` cannot access budgets routes.
 - `funcionario` cannot access products and stock movement routes.
+- `funcionario` cannot access clients routes.
 - `funcionario` can list productions, but only from teams where this employee is a member.
 - `GET /api/logistics/summary` is available only for `admin` and `gerente`.
+
+## Clients API
+
+Endpoints:
+
+- `GET /api/clients`
+- `GET /api/clients?search=:search&isActive=true|false`
+- `GET /api/clients/:id`
+- `POST /api/clients`
+- `PATCH /api/clients/:id`
+- `DELETE /api/clients/:id`
+
+Rules:
+
+- Clients payload supports full profile data: `name`, `companyName`, `document`, `contactName`, `email`, `phone`, `secondaryPhone`, `street`, `number`, `complement`, `neighborhood`, `city`, `state`, `postalCode`, `notes`, `isActive`, `metadata`.
+- `email` and `document` are unique when informed.
+- `DELETE /api/clients/:id` removes the client record permanently.
 
 ## Products and stock movements API
 
