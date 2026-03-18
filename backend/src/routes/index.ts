@@ -4,7 +4,9 @@ import { budgetRoutes } from "./budget.routes";
 import { employeeRoutes } from "./employee.routes";
 import { healthRoutes } from "./health.routes";
 import { logisticsRoutes } from "./logistics.routes";
+import { productRoutes } from "./product.routes";
 import { productionRoutes } from "./production.routes";
+import { stockRoutes } from "./stock.routes";
 import { teamRoutes } from "./team.routes";
 import { userRoutes } from "./user.routes";
 
@@ -14,6 +16,8 @@ apiRoutes.use("/health", healthRoutes);
 apiRoutes.use("/auth", authRoutes);
 apiRoutes.use("/logistics", logisticsRoutes);
 apiRoutes.use("/budgets", budgetRoutes);
+apiRoutes.use("/products", productRoutes);
+apiRoutes.use("/stock", stockRoutes);
 apiRoutes.use("/productions", productionRoutes);
 apiRoutes.use("/employees", employeeRoutes);
 apiRoutes.use("/teams", teamRoutes);

@@ -52,6 +52,12 @@ npm run build
 - `POST /api/budgets`
 - `PATCH /api/budgets/:id`
 - `PATCH /api/budgets/:id/approve`
+- `GET /api/products`
+- `GET /api/products/:id`
+- `POST /api/products`
+- `PATCH /api/products/:id`
+- `GET /api/stock/movements`
+- `POST /api/stock/movements`
 - `POST /api/productions`
 - `GET /api/productions`
 - `GET /api/productions?employeeId=:employeeId`
@@ -82,7 +88,7 @@ To create employees, teams, and team-member relationships, run this script in Po
 - `sql/20260317_add_employee_auth_roles.sql`
 - `sql/20260317_create_budgets.sql`
 - `sql/20260317_add_logistics_indexes.sql` (optional, for query performance)
-- `sql/20260317_add_product_stock_movements.sql` (required for stock deduction on production completion)
+- `sql/20260317_add_product_stock_movements.sql` (required for products API, stock movements API, and stock deduction on production completion)
 
 If `public.products` does not exist yet in your database, this migration creates a minimal products table automatically.
 
@@ -101,10 +107,36 @@ Bootstrap users created by `sql/20260317_add_employee_auth_roles.sql`:
 - Roles: `admin`, `gerente`, `funcionario`.
 - `admin` and `gerente` can manage employees, teams, and productions.
 - `admin` and `gerente` can manage budgets.
+- `admin` and `gerente` can manage products and stock movements.
 - `funcionario` cannot create/complete productions and cannot access employees/teams/users management routes.
 - `funcionario` cannot access budgets routes.
+- `funcionario` cannot access products and stock movement routes.
 - `funcionario` can list productions, but only from teams where this employee is a member.
 - `GET /api/logistics/summary` is available only for `admin` and `gerente`.
+
+## Products and stock movements API
+
+Endpoints:
+
+- `GET /api/products`
+- `GET /api/products?search=:search`
+- `GET /api/products/:id`
+- `POST /api/products`
+- `PATCH /api/products/:id`
+- `GET /api/stock/movements`
+- `GET /api/stock/movements?productId=:productId&movementType=:entrada|saida&limit=50&offset=0`
+- `POST /api/stock/movements`
+
+Rules:
+
+- Product create payload: `name`, `stockQuantity`.
+- Product update payload: `name`.
+- Stock movement create payload: `productId`, `movementType`, `quantity`, `unit`, `reason`, `referenceType`, `referenceId`.
+- `POST /api/stock/movements` is transactional:
+	- `entrada` increments `products.stock_quantity`.
+	- `saida` decrements `products.stock_quantity`.
+	- Outbound movement returns `409` when stock is insufficient.
+- Every successful movement creates a row in `product_stock_movements`.
 
 ## Logistics summary contract
 
