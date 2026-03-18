@@ -40,6 +40,8 @@ interface CreateProductionShareLinkInput {
   expiresAt: Date;
 }
 
+let productionOrderMaterialsProductIdColumnExists: boolean | null = null;
+
 interface DatabaseErrorLike {
   code?: string;
   message?: string;
@@ -105,16 +107,47 @@ function normalizeProductionStatus(status: string): ProductionStatus {
 }
 
 function normalizeSchemaError(error: unknown): never {
-  const code = (error as { code?: string }).code;
+  const dbError = toDatabaseErrorLike(error);
+  const code = dbError.code;
 
   if (code === "42P01" || code === "42703") {
     throw new AppError(
-      "Production share schema is not configured. Run sql/20260318_create_production_share_links.sql",
+      "Production share schema is out of date. Run pending SQL migrations.",
       500,
+      {
+        code: dbError.code,
+        table: dbError.table ?? null,
+        column: dbError.column ?? null,
+        suggestedMigrations: [
+          "sql/20260318_create_production_share_links.sql",
+          "sql/20260316_add_product_id_to_production_order_materials.sql",
+        ],
+      },
     );
   }
 
   throw error;
+}
+
+async function hasProductionOrderMaterialsProductIdColumn(): Promise<boolean> {
+  if (productionOrderMaterialsProductIdColumnExists !== null) {
+    return productionOrderMaterialsProductIdColumnExists;
+  }
+
+  const result = await pool.query<{ exists: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'production_order_materials'
+          AND column_name = 'product_id'
+      ) AS exists;
+    `,
+  );
+
+  productionOrderMaterialsProductIdColumnExists = Boolean(result.rows[0]?.exists);
+  return productionOrderMaterialsProductIdColumnExists;
 }
 
 async function findProductionById(client: PoolClient, productionId: string): Promise<ProductionExistsRow | undefined> {
@@ -279,8 +312,12 @@ function mapProductionRows(rows: PublicProductionRow[]): PublicProductionView | 
 
 async function findPublicProductionByTokenHash(tokenHash: string): Promise<PublicProductionView | undefined> {
   try {
+    const canUseProductId = await hasProductionOrderMaterialsProductIdColumn();
+    const productIdSelect = canUseProductId ? "pom.product_id" : "NULL::text AS product_id";
+
     console.info("[production-share][repository][findPublicByTokenHash] Querying shared production", {
       tokenHashPrefix: tokenHashPrefix(tokenHash),
+      canUseProductId,
     });
 
     const result = await pool.query<PublicProductionRow>(
@@ -294,7 +331,7 @@ async function findPublicProductionByTokenHash(tokenHash: string): Promise<Publi
           po.delivery_date,
           po.installation_team,
           po.updated_at,
-          pom.product_id,
+          ${productIdSelect},
           pom.product_name,
           pom.quantity,
           pom.unit
@@ -306,7 +343,7 @@ async function findPublicProductionByTokenHash(tokenHash: string): Promise<Publi
         WHERE psl.token_hash = $1
           AND psl.revoked_at IS NULL
           AND (psl.expires_at IS NULL OR psl.expires_at > NOW())
-        ORDER BY pom.id ASC;
+        ORDER BY pom.product_name ASC NULLS LAST;
       `,
       [tokenHash],
     );
