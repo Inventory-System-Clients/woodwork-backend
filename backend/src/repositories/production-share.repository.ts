@@ -40,6 +40,18 @@ interface CreateProductionShareLinkInput {
   expiresAt: Date;
 }
 
+interface DatabaseErrorLike {
+  code?: string;
+  message?: string;
+  detail?: string;
+  hint?: string;
+  schema?: string;
+  table?: string;
+  column?: string;
+  constraint?: string;
+  routine?: string;
+}
+
 const STATUS_ALIASES: Record<string, ProductionStatus> = {
   pendente: "pending",
   corte: "cutting",
@@ -52,6 +64,18 @@ const STATUS_ALIASES: Record<string, ProductionStatus> = {
   concluida: "delivered",
   completed: "delivered",
 };
+
+function tokenHashPrefix(value: string): string {
+  return value.slice(0, 12);
+}
+
+function toDatabaseErrorLike(error: unknown): DatabaseErrorLike {
+  if (typeof error !== "object" || error === null) {
+    return {};
+  }
+
+  return error as DatabaseErrorLike;
+}
 
 function toNumber(value: string | number | null): number {
   if (value === null) {
@@ -111,16 +135,26 @@ async function createShareLink(input: CreateProductionShareLinkInput): Promise<P
   const client = await pool.connect();
 
   try {
+    console.info("[production-share][repository][createShareLink] Starting", {
+      productionId: input.productionId,
+      createdByUserId: input.createdByUserId,
+      tokenHashPrefix: tokenHashPrefix(input.tokenHash),
+      expiresAt: input.expiresAt.toISOString(),
+    });
+
     await client.query("BEGIN");
 
     const production = await findProductionById(client, input.productionId);
 
     if (!production) {
+      console.warn("[production-share][repository][createShareLink] Production not found", {
+        productionId: input.productionId,
+      });
       await client.query("ROLLBACK");
       return undefined;
     }
 
-    await client.query(
+    const revokeResult = await client.query(
       `
         UPDATE public.production_share_links
         SET
@@ -131,6 +165,11 @@ async function createShareLink(input: CreateProductionShareLinkInput): Promise<P
       `,
       [input.productionId],
     );
+
+    console.info("[production-share][repository][createShareLink] Previous active links revoked", {
+      productionId: input.productionId,
+      revokedCount: revokeResult.rowCount ?? 0,
+    });
 
     const result = await client.query<ProductionShareLinkRow>(
       `
@@ -151,9 +190,39 @@ async function createShareLink(input: CreateProductionShareLinkInput): Promise<P
     );
 
     await client.query("COMMIT");
+    console.info("[production-share][repository][createShareLink] Link created", {
+      productionId: input.productionId,
+      shareLinkId: result.rows[0]?.id,
+      expiresAt: toDateString(result.rows[0]?.expires_at ?? null),
+    });
     return result.rows[0];
   } catch (error) {
-    await client.query("ROLLBACK");
+    const dbError = toDatabaseErrorLike(error);
+
+    console.error("[production-share][repository][createShareLink] Failed", {
+      productionId: input.productionId,
+      createdByUserId: input.createdByUserId,
+      tokenHashPrefix: tokenHashPrefix(input.tokenHash),
+      code: dbError.code,
+      message: dbError.message,
+      detail: dbError.detail,
+      hint: dbError.hint,
+      schema: dbError.schema,
+      table: dbError.table,
+      column: dbError.column,
+      constraint: dbError.constraint,
+      routine: dbError.routine,
+    });
+
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("[production-share][repository][createShareLink] Rollback failed", {
+        productionId: input.productionId,
+        message: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+      });
+    }
+
     normalizeSchemaError(error);
   } finally {
     client.release();
@@ -210,6 +279,10 @@ function mapProductionRows(rows: PublicProductionRow[]): PublicProductionView | 
 
 async function findPublicProductionByTokenHash(tokenHash: string): Promise<PublicProductionView | undefined> {
   try {
+    console.info("[production-share][repository][findPublicByTokenHash] Querying shared production", {
+      tokenHashPrefix: tokenHashPrefix(tokenHash),
+    });
+
     const result = await pool.query<PublicProductionRow>(
       `
         SELECT
@@ -239,6 +312,9 @@ async function findPublicProductionByTokenHash(tokenHash: string): Promise<Publi
     );
 
     if (result.rows.length === 0) {
+      console.warn("[production-share][repository][findPublicByTokenHash] Token not found/expired/revoked", {
+        tokenHashPrefix: tokenHashPrefix(tokenHash),
+      });
       return undefined;
     }
 
@@ -253,8 +329,33 @@ async function findPublicProductionByTokenHash(tokenHash: string): Promise<Publi
       [shareLinkId],
     );
 
-    return mapProductionRows(result.rows);
+    const mappedProduction = mapProductionRows(result.rows);
+
+    console.info("[production-share][repository][findPublicByTokenHash] Shared production loaded", {
+      tokenHashPrefix: tokenHashPrefix(tokenHash),
+      shareLinkId,
+      productionId: mappedProduction?.id,
+      materialsCount: mappedProduction?.materials.length ?? 0,
+      status: mappedProduction?.productionStatus,
+    });
+
+    return mappedProduction;
   } catch (error) {
+    const dbError = toDatabaseErrorLike(error);
+
+    console.error("[production-share][repository][findPublicByTokenHash] Failed", {
+      tokenHashPrefix: tokenHashPrefix(tokenHash),
+      code: dbError.code,
+      message: dbError.message,
+      detail: dbError.detail,
+      hint: dbError.hint,
+      schema: dbError.schema,
+      table: dbError.table,
+      column: dbError.column,
+      constraint: dbError.constraint,
+      routine: dbError.routine,
+    });
+
     normalizeSchemaError(error);
   }
 }
