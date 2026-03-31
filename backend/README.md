@@ -107,6 +107,7 @@ To create employees, teams, and team-member relationships, run this script in Po
 - `sql/20260317_add_product_stock_movements.sql` (required for products API, stock movements API, and stock deduction on budget/production approval)
 - `sql/20260318_add_low_stock_alert_to_products.sql` (required to add product low stock alert threshold)
 - `sql/20260319_add_budget_financials_and_production_material_unit_price.sql` (required for budgets financial fields and material unit prices)
+- `sql/20260331_add_budget_category.sql` (required to add budget category: arquitetonico|executivo)
 - `sql/20260318_expand_production_status_flow.sql` (required to support production workflow stages)
 - `sql/20260318_create_clients.sql` (required for clients API)
 - `sql/20260318_create_production_share_links.sql` (required for production public sharing links)

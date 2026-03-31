@@ -15,6 +15,7 @@ function toOptionalQueryString(value: unknown): string | undefined {
 const list = asyncHandler(async (req: Request, res: Response) => {
   const query = listBudgetsQuerySchema.parse({
     status: toOptionalQueryString(req.query.status),
+    category: toOptionalQueryString(req.query.category),
     startDate: toOptionalQueryString(req.query.startDate),
     endDate: toOptionalQueryString(req.query.endDate),
     clientName: toOptionalQueryString(req.query.clientName),

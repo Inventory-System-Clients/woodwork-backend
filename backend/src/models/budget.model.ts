@@ -26,6 +26,9 @@ const optionalTextField = (maxLength: number) =>
 export const budgetStatusSchema = z.enum(["draft", "pending", "approved", "rejected"]);
 export type BudgetStatus = z.infer<typeof budgetStatusSchema>;
 
+export const budgetCategorySchema = z.enum(["arquitetonico", "executivo"]);
+export type BudgetCategory = z.infer<typeof budgetCategorySchema>;
+
 export const budgetMaterialSchema = z.object({
   productId: z
     .string()
@@ -42,6 +45,7 @@ export const budgetMaterialSchema = z.object({
 
 export const createBudgetSchema = z.object({
   clientName: z.string().trim().min(2, "clientName must have at least 2 characters").max(200),
+  category: budgetCategorySchema,
   description: z.string().trim().min(1, "description is required").max(2000),
   deliveryDate: deliveryDateSchema.optional().nullable(),
   totalPrice: monetarySchema.default(0),
@@ -57,6 +61,7 @@ export const createBudgetSchema = z.object({
 export const updateBudgetSchema = z
   .object({
     clientName: z.string().trim().min(2, "clientName must have at least 2 characters").max(200).optional(),
+    category: budgetCategorySchema.optional(),
     description: z.string().trim().min(1, "description is required").max(2000).optional(),
     deliveryDate: deliveryDateSchema.optional().nullable(),
     totalPrice: monetarySchema.optional(),
@@ -75,6 +80,7 @@ export const updateBudgetSchema = z
 export const listBudgetsQuerySchema = z
   .object({
     status: budgetStatusSchema.optional(),
+    category: budgetCategorySchema.optional(),
     startDate: queryDateSchema.optional(),
     endDate: queryDateSchema.optional(),
     clientName: z.string().trim().min(1).max(200).optional(),
@@ -109,6 +115,7 @@ export interface BudgetFinancialSummary {
 export interface Budget {
   id: string;
   clientName: string;
+  category: BudgetCategory;
   description: string;
   status: BudgetStatus;
   deliveryDate: string | null;

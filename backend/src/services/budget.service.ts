@@ -82,6 +82,7 @@ async function updateBudget(id: string, payload: UpdateBudgetInput): Promise<Bud
 
   const updatedBudget = await budgetRepository.save(id, {
     clientName: payload.clientName ?? existingBudget.clientName,
+    category: payload.category ?? existingBudget.category,
     description: payload.description ?? existingBudget.description,
     status: shouldApproveOnUpdate ? existingBudget.status : nextStatus,
     deliveryDate: payload.deliveryDate !== undefined ? payload.deliveryDate : existingBudget.deliveryDate,

@@ -3,6 +3,7 @@ import { PoolClient } from "pg";
 import { pool } from "../database/postgres";
 import {
   Budget,
+  BudgetCategory,
   BudgetFinancialSummary,
   BudgetMaterial,
   BudgetStatus,
@@ -15,6 +16,7 @@ import { AppError } from "../utils/app-error";
 interface BudgetRow {
   id: string;
   client_name: string;
+  category: BudgetCategory;
   description: string;
   status: BudgetStatus;
   delivery_date: string | Date | null;
@@ -61,6 +63,7 @@ export type CreateBudgetRecordInput = CreateBudgetInput;
 
 export interface SaveBudgetRecordInput {
   clientName: string;
+  category: BudgetCategory;
   description: string;
   status: BudgetStatus;
   deliveryDate: string | null;
@@ -174,6 +177,7 @@ function mapBudgetRow(row: BudgetRow): Budget {
   return {
     id: row.id,
     clientName: row.client_name,
+    category: row.category,
     description: row.description,
     status: row.status,
     deliveryDate: toDateString(row.delivery_date),
@@ -313,7 +317,7 @@ function normalizePersistenceError(error: unknown): never {
   if (code === "42P01" || code === "42703") {
     throw new AppError("Internal server error", 500, {
       reason:
-        "Budgets financial schema is not configured. Run sql/20260319_add_budget_financials_and_production_material_unit_price.sql",
+        "Budgets schema is not configured. Run sql/20260319_add_budget_financials_and_production_material_unit_price.sql and sql/20260331_add_budget_category.sql",
     });
   }
 
@@ -671,6 +675,7 @@ async function listByIdWithClient(client: PoolClient, id: string): Promise<Budge
         SELECT
           b.id,
           b.client_name,
+          b.category,
           b.description,
           b.status,
           b.delivery_date,
@@ -709,6 +714,7 @@ async function listByIdWithClient(client: PoolClient, id: string): Promise<Budge
 
 async function findAll(query: ListBudgetsRecordInput): Promise<PaginatedBudgets> {
   const statusFilter = query.status ?? null;
+  const categoryFilter = query.category ?? null;
   const startDateFilter = query.startDate ?? null;
   const endDateFilter = query.endDate ?? null;
   const clientNameFilter = query.clientName ?? null;
@@ -721,11 +727,12 @@ async function findAll(query: ListBudgetsRecordInput): Promise<PaginatedBudgets>
           COUNT(*) AS total_count
         FROM public.budgets b
         WHERE ($1::text IS NULL OR b.status = $1)
-          AND ($2::timestamptz IS NULL OR COALESCE(b.approved_at, b.created_at) >= $2)
-          AND ($3::timestamptz IS NULL OR COALESCE(b.approved_at, b.created_at) <= $3)
-          AND ($4::text IS NULL OR LOWER(b.client_name) LIKE CONCAT('%', LOWER(BTRIM($4)), '%'));
+          AND ($2::text IS NULL OR b.category = $2)
+          AND ($3::timestamptz IS NULL OR COALESCE(b.approved_at, b.created_at) >= $3)
+          AND ($4::timestamptz IS NULL OR COALESCE(b.approved_at, b.created_at) <= $4)
+          AND ($5::text IS NULL OR LOWER(b.client_name) LIKE CONCAT('%', LOWER(BTRIM($5)), '%'));
       `,
-      [statusFilter, startDateFilter, endDateFilter, clientNameFilter],
+      [statusFilter, categoryFilter, startDateFilter, endDateFilter, clientNameFilter],
     );
 
     const totalItems = toNumber(countResult.rows[0]?.total_count ?? 0);
@@ -738,15 +745,17 @@ async function findAll(query: ListBudgetsRecordInput): Promise<PaginatedBudgets>
             b.id
           FROM public.budgets b
           WHERE ($1::text IS NULL OR b.status = $1)
-            AND ($2::timestamptz IS NULL OR COALESCE(b.approved_at, b.created_at) >= $2)
-            AND ($3::timestamptz IS NULL OR COALESCE(b.approved_at, b.created_at) <= $3)
-            AND ($4::text IS NULL OR LOWER(b.client_name) LIKE CONCAT('%', LOWER(BTRIM($4)), '%'))
+            AND ($2::text IS NULL OR b.category = $2)
+            AND ($3::timestamptz IS NULL OR COALESCE(b.approved_at, b.created_at) >= $3)
+            AND ($4::timestamptz IS NULL OR COALESCE(b.approved_at, b.created_at) <= $4)
+            AND ($5::text IS NULL OR LOWER(b.client_name) LIKE CONCAT('%', LOWER(BTRIM($5)), '%'))
           ORDER BY COALESCE(b.approved_at, b.created_at) DESC, b.created_at DESC
-          LIMIT $5 OFFSET $6
+          LIMIT $6 OFFSET $7
         )
         SELECT
           b.id,
           b.client_name,
+          b.category,
           b.description,
           b.status,
           b.delivery_date,
@@ -771,7 +780,7 @@ async function findAll(query: ListBudgetsRecordInput): Promise<PaginatedBudgets>
           ON bm.budget_id = b.id
         ORDER BY COALESCE(b.approved_at, b.created_at) DESC, b.created_at DESC, bm.id ASC;
       `,
-      [statusFilter, startDateFilter, endDateFilter, clientNameFilter, query.limit, offset],
+      [statusFilter, categoryFilter, startDateFilter, endDateFilter, clientNameFilter, query.limit, offset],
     );
 
     return {
@@ -849,6 +858,7 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
         INSERT INTO public.budgets (
           id,
           client_name,
+          category,
           description,
           status,
           delivery_date,
@@ -872,12 +882,14 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
           $9,
           $10,
           $11,
-          CASE WHEN $4 = 'approved' THEN NOW() ELSE NULL END
+          $12,
+          CASE WHEN $5 = 'approved' THEN NOW() ELSE NULL END
         );
       `,
       [
         budgetId,
         payload.clientName,
+        payload.category,
         payload.description,
         payload.status,
         payload.deliveryDate ?? null,
@@ -932,21 +944,23 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
         UPDATE public.budgets
         SET
           client_name = $2,
-          description = $3,
-          status = $4,
-          delivery_date = $5,
-          total_price = $6,
-          total_cost = $7,
-          profit_margin = $8,
-          profit_value = $9,
-          labor_cost = $10,
-          notes = $11,
-          approved_at = $12,
+          category = $3,
+          description = $4,
+          status = $5,
+          delivery_date = $6,
+          total_price = $7,
+          total_cost = $8,
+          profit_margin = $9,
+          profit_value = $10,
+          labor_cost = $11,
+          notes = $12,
+          approved_at = $13,
           updated_at = NOW()
         WHERE id = $1
         RETURNING
           id,
           client_name,
+          category,
           description,
           status,
           delivery_date,
@@ -963,6 +977,7 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
       [
         id,
         payload.clientName,
+        payload.category,
         payload.description,
         payload.status,
         payload.deliveryDate,
@@ -1013,6 +1028,7 @@ async function approve(id: string): Promise<Budget | undefined> {
         SELECT
           id,
           client_name,
+          category,
           description,
           status,
           delivery_date,

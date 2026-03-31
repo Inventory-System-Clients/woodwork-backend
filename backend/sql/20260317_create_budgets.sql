@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS public.budgets (
   id TEXT PRIMARY KEY,
   client_name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'executivo',
   description TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   delivery_date TIMESTAMPTZ,
@@ -9,6 +10,8 @@ CREATE TABLE IF NOT EXISTS public.budgets (
   approved_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT chk_budgets_category
+    CHECK (category IN ('arquitetonico', 'executivo')),
   CONSTRAINT chk_budgets_status
     CHECK (status IN ('draft', 'pending', 'approved', 'rejected'))
 );
@@ -30,6 +33,9 @@ CREATE TABLE IF NOT EXISTS public.budget_materials (
 
 CREATE INDEX IF NOT EXISTS idx_budgets_status
 ON public.budgets (status);
+
+CREATE INDEX IF NOT EXISTS idx_budgets_category
+ON public.budgets (category);
 
 CREATE INDEX IF NOT EXISTS idx_budgets_created_at
 ON public.budgets (created_at DESC);
