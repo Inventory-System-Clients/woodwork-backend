@@ -1202,7 +1202,7 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
           $13,
           CASE WHEN $5 = 'approved' THEN NOW() ELSE NULL END,
           CASE WHEN $5 IN ('pre_approved', 'approved') THEN NOW() ELSE NULL END,
-          CASE WHEN $5 IN ('pre_approved', 'approved') THEN $9 ELSE 0 END
+          CASE WHEN $5 IN ('pre_approved', 'approved') THEN $9::numeric ELSE 0::numeric END
         );
       `,
       [
@@ -1290,7 +1290,7 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
             ELSE costs_applied_at
           END,
           costs_applied_value = CASE
-            WHEN $5 IN ('pre_approved', 'approved') THEN $9
+            WHEN $5 IN ('pre_approved', 'approved') THEN $9::numeric
             ELSE costs_applied_value
           END,
           updated_at = NOW()
