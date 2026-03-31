@@ -1,6 +1,8 @@
 import { AppError } from "../utils/app-error";
 import {
   Budget,
+  ExpenseDepartmentCatalogItem,
+  ListExpenseDepartmentsQueryInput,
   ListBudgetsQueryInput,
   PaginatedBudgets,
   BudgetStatus,
@@ -25,6 +27,12 @@ function resolveApprovedAt(currentStatus: BudgetStatus, nextStatus: BudgetStatus
 
 async function listBudgets(query: ListBudgetsQueryInput): Promise<PaginatedBudgets> {
   return budgetRepository.findAll(query);
+}
+
+async function listExpenseDepartmentsCatalog(
+  query: ListExpenseDepartmentsQueryInput,
+): Promise<ExpenseDepartmentCatalogItem[]> {
+  return budgetRepository.listExpenseDepartmentsCatalog(query);
 }
 
 async function getBudgetById(id: string): Promise<Budget> {
@@ -79,6 +87,14 @@ async function updateBudget(id: string, payload: UpdateBudgetInput): Promise<Bud
         unitPrice: material.unitPrice ?? null,
       }))
     : existingBudget.materials;
+  const nextExpenseDepartments: Budget["expenseDepartments"] = payload.expenseDepartments
+    ? payload.expenseDepartments.map((department) => ({
+        expenseDepartmentId: department.expenseDepartmentId,
+        name: department.name,
+        sector: department.sector,
+        amount: department.amount,
+      }))
+    : existingBudget.expenseDepartments;
 
   const updatedBudget = await budgetRepository.save(id, {
     clientName: payload.clientName ?? existingBudget.clientName,
@@ -96,6 +112,7 @@ async function updateBudget(id: string, payload: UpdateBudgetInput): Promise<Bud
       ? existingBudget.approvedAt
       : resolveApprovedAt(existingBudget.status, nextStatus, existingBudget.approvedAt),
     materials: nextMaterials,
+    expenseDepartments: nextExpenseDepartments,
   });
 
   if (!updatedBudget) {
@@ -127,6 +144,7 @@ async function approveBudget(id: string): Promise<Budget> {
 
 export const budgetService = {
   listBudgets,
+  listExpenseDepartmentsCatalog,
   getBudgetById,
   createBudget,
   updateBudget,

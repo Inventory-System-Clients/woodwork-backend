@@ -43,6 +43,19 @@ export const budgetMaterialSchema = z.object({
   unitPrice: z.coerce.number().nonnegative("unitPrice cannot be negative").optional().nullable(),
 });
 
+export const budgetExpenseDepartmentSchema = z.object({
+  expenseDepartmentId: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .nullable()
+    .transform((value) => value ?? undefined),
+  name: z.string().trim().min(1, "name is required").max(200),
+  sector: z.string().trim().min(1, "sector is required").max(120),
+  amount: z.coerce.number().nonnegative("amount cannot be negative"),
+});
+
 export const createBudgetSchema = z.object({
   clientName: z.string().trim().min(2, "clientName must have at least 2 characters").max(200),
   category: budgetCategorySchema,
@@ -56,6 +69,7 @@ export const createBudgetSchema = z.object({
   notes: optionalTextField(2000),
   status: budgetStatusSchema.default("pending"),
   materials: z.array(budgetMaterialSchema).min(1, "At least one material is required"),
+  expenseDepartments: z.array(budgetExpenseDepartmentSchema).default([]),
 });
 
 export const updateBudgetSchema = z
@@ -72,6 +86,7 @@ export const updateBudgetSchema = z
     notes: optionalTextField(2000),
     status: budgetStatusSchema.optional(),
     materials: z.array(budgetMaterialSchema).min(1, "At least one material is required").optional(),
+    expenseDepartments: z.array(budgetExpenseDepartmentSchema).optional(),
   })
   .refine((payload) => Object.keys(payload).length > 0, {
     message: "At least one field must be provided",
@@ -95,6 +110,10 @@ export const listBudgetsQuerySchema = z
     },
   );
 
+export const listExpenseDepartmentsQuerySchema = z.object({
+  search: z.string().trim().min(1).max(200).optional(),
+});
+
 export interface BudgetMaterial {
   productId?: string;
   productName: string;
@@ -103,9 +122,26 @@ export interface BudgetMaterial {
   unitPrice: number | null;
 }
 
+export interface BudgetExpenseDepartment {
+  expenseDepartmentId?: string;
+  name: string;
+  sector: string;
+  amount: number;
+}
+
+export interface ExpenseDepartmentCatalogItem {
+  id: string;
+  name: string;
+  sector: string;
+  defaultAmount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BudgetFinancialSummary {
   totalPrice: number;
   totalCost: number;
+  expenseDepartmentsCost: number;
   laborCost: number;
   profitMargin: number;
   profitValue: number;
@@ -131,6 +167,7 @@ export interface Budget {
   createdAt: string;
   updatedAt: string;
   materials: BudgetMaterial[];
+  expenseDepartments: BudgetExpenseDepartment[];
 }
 
 export interface BudgetPagination {
@@ -150,3 +187,4 @@ export interface PaginatedBudgets {
 export type CreateBudgetInput = z.infer<typeof createBudgetSchema>;
 export type UpdateBudgetInput = z.infer<typeof updateBudgetSchema>;
 export type ListBudgetsQueryInput = z.infer<typeof listBudgetsQuerySchema>;
+export type ListExpenseDepartmentsQueryInput = z.infer<typeof listExpenseDepartmentsQuerySchema>;
