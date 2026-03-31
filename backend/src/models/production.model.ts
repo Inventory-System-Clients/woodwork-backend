@@ -34,6 +34,7 @@ export const productionMaterialSchema = z.object({
   productName: z.string().trim().min(1, "productName is required").max(255),
   quantity: z.coerce.number().positive("quantity must be greater than zero"),
   unit: z.string().trim().min(1, "unit is required").max(80),
+  unitPrice: z.coerce.number().nonnegative("unitPrice cannot be negative").optional().nullable(),
 });
 
 export const createProductionSchema = z.object({
@@ -50,6 +51,7 @@ export interface ProductionMaterial {
   productName: string;
   quantity: number;
   unit: string;
+  unitPrice: number;
 }
 
 export interface Production {

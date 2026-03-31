@@ -27,6 +27,7 @@ export interface Product {
   name: string;
   stockQuantity: number;
   lowStockAlertQuantity: number;
+  stockStatus: "em_estoque" | "precisa_comprar";
   createdAt: string;
   updatedAt: string;
 }

@@ -1,6 +1,8 @@
 import { AppError } from "../utils/app-error";
 import {
   Budget,
+  ListBudgetsQueryInput,
+  PaginatedBudgets,
   BudgetStatus,
   CreateBudgetInput,
   UpdateBudgetInput,
@@ -21,8 +23,8 @@ function resolveApprovedAt(currentStatus: BudgetStatus, nextStatus: BudgetStatus
   return currentApprovedAt;
 }
 
-async function listBudgets(): Promise<Budget[]> {
-  return budgetRepository.findAll();
+async function listBudgets(query: ListBudgetsQueryInput): Promise<PaginatedBudgets> {
+  return budgetRepository.findAll(query);
 }
 
 async function getBudgetById(id: string): Promise<Budget> {
@@ -84,6 +86,10 @@ async function updateBudget(id: string, payload: UpdateBudgetInput): Promise<Bud
     status: shouldApproveOnUpdate ? existingBudget.status : nextStatus,
     deliveryDate: payload.deliveryDate !== undefined ? payload.deliveryDate : existingBudget.deliveryDate,
     totalPrice: payload.totalPrice ?? existingBudget.totalPrice,
+    totalCost: payload.totalCost ?? existingBudget.totalCost,
+    laborCost: payload.laborCost ?? existingBudget.laborCost,
+    profitMargin: payload.profitMargin ?? existingBudget.profitMargin,
+    profitValue: payload.profitValue ?? existingBudget.profitValue,
     notes: payload.notes !== undefined ? payload.notes : existingBudget.notes,
     approvedAt: shouldApproveOnUpdate
       ? existingBudget.approvedAt

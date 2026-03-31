@@ -7,6 +7,19 @@ const deliveryDateSchema = z
     message: "deliveryDate must be a valid date",
   });
 
+const queryDateSchema = z
+  .string()
+  .trim()
+  .refine((value) => !Number.isNaN(Date.parse(value)), {
+    message: "Date filter must be a valid ISO 8601 date",
+  });
+
+const monetarySchema = z.coerce.number().nonnegative("Value cannot be negative");
+const profitMarginSchema = z.coerce
+  .number()
+  .min(0, "profitMargin cannot be negative")
+  .max(1, "profitMargin must be in decimal format between 0 and 1");
+
 const optionalTextField = (maxLength: number) =>
   z.string().trim().min(1).max(maxLength).optional().nullable();
 
@@ -25,7 +38,11 @@ export const createBudgetSchema = z.object({
   clientName: z.string().trim().min(2, "clientName must have at least 2 characters").max(200),
   description: z.string().trim().min(1, "description is required").max(2000),
   deliveryDate: deliveryDateSchema.optional().nullable(),
-  totalPrice: z.coerce.number().nonnegative("totalPrice cannot be negative").default(0),
+  totalPrice: monetarySchema.default(0),
+  totalCost: monetarySchema.optional(),
+  laborCost: monetarySchema.optional(),
+  profitMargin: profitMarginSchema.optional(),
+  profitValue: monetarySchema.optional(),
   notes: optionalTextField(2000),
   status: budgetStatusSchema.default("pending"),
   materials: z.array(budgetMaterialSchema).min(1, "At least one material is required"),
@@ -36,7 +53,11 @@ export const updateBudgetSchema = z
     clientName: z.string().trim().min(2, "clientName must have at least 2 characters").max(200).optional(),
     description: z.string().trim().min(1, "description is required").max(2000).optional(),
     deliveryDate: deliveryDateSchema.optional().nullable(),
-    totalPrice: z.coerce.number().nonnegative("totalPrice cannot be negative").optional(),
+    totalPrice: monetarySchema.optional(),
+    totalCost: monetarySchema.optional(),
+    laborCost: monetarySchema.optional(),
+    profitMargin: profitMarginSchema.optional(),
+    profitValue: monetarySchema.optional(),
     notes: optionalTextField(2000),
     status: budgetStatusSchema.optional(),
     materials: z.array(budgetMaterialSchema).min(1, "At least one material is required").optional(),
@@ -44,6 +65,23 @@ export const updateBudgetSchema = z
   .refine((payload) => Object.keys(payload).length > 0, {
     message: "At least one field must be provided",
   });
+
+export const listBudgetsQuerySchema = z
+  .object({
+    status: budgetStatusSchema.optional(),
+    startDate: queryDateSchema.optional(),
+    endDate: queryDateSchema.optional(),
+    clientName: z.string().trim().min(1).max(200).optional(),
+    page: z.coerce.number().int().min(1, "page must be greater than zero").default(1),
+    limit: z.coerce.number().int().min(1, "limit must be greater than zero").max(100).default(20),
+  })
+  .refine(
+    (query) => !query.startDate || !query.endDate || new Date(query.startDate) <= new Date(query.endDate),
+    {
+      message: "endDate must be greater than or equal to startDate",
+      path: ["endDate"],
+    },
+  );
 
 export interface BudgetMaterial {
   productId?: string;
@@ -53,6 +91,15 @@ export interface BudgetMaterial {
   unitPrice: number | null;
 }
 
+export interface BudgetFinancialSummary {
+  totalPrice: number;
+  totalCost: number;
+  laborCost: number;
+  profitMargin: number;
+  profitValue: number;
+  netProfitValue: number;
+}
+
 export interface Budget {
   id: string;
   clientName: string;
@@ -60,6 +107,12 @@ export interface Budget {
   status: BudgetStatus;
   deliveryDate: string | null;
   totalPrice: number;
+  totalCost: number;
+  laborCost: number;
+  profitMargin: number;
+  profitValue: number;
+  netProfitValue: number;
+  financialSummary: BudgetFinancialSummary;
   notes: string | null;
   approvedAt: string | null;
   createdAt: string;
@@ -67,5 +120,20 @@ export interface Budget {
   materials: BudgetMaterial[];
 }
 
+export interface BudgetPagination {
+  page: number;
+  limit: number;
+  totalItems: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+export interface PaginatedBudgets {
+  data: Budget[];
+  pagination: BudgetPagination;
+}
+
 export type CreateBudgetInput = z.infer<typeof createBudgetSchema>;
 export type UpdateBudgetInput = z.infer<typeof updateBudgetSchema>;
+export type ListBudgetsQueryInput = z.infer<typeof listBudgetsQuerySchema>;

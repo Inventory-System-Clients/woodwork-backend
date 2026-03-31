@@ -31,11 +31,14 @@ function toDateString(value: string | Date): string {
 }
 
 function mapProductRow(row: ProductRow): Product {
+  const stockQuantity = toNumber(row.stock_quantity);
+
   return {
     id: row.id,
     name: row.name && row.name.trim().length > 0 ? row.name : row.id,
-    stockQuantity: toNumber(row.stock_quantity),
+    stockQuantity,
     lowStockAlertQuantity: toNumber(row.low_stock_alert_quantity),
+    stockStatus: stockQuantity <= 0 ? "precisa_comprar" : "em_estoque",
     createdAt: toDateString(row.created_at),
     updatedAt: toDateString(row.updated_at),
   };

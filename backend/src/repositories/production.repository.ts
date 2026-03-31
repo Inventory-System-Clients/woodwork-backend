@@ -29,6 +29,7 @@ interface ProductionWithMaterialRow extends ProductionOrderRow {
   product_name: string | null;
   quantity: string | number | null;
   unit: string | null;
+  unit_price: string | number | null;
 }
 
 interface ProductionMaterialUsageRow {
@@ -44,6 +45,7 @@ interface ProductStockRow {
 }
 
 let productIdColumnExists: boolean | null = null;
+let unitPriceColumnExists: boolean | null = null;
 let installationTeamIdColumnExists: boolean | null = null;
 let teamMembersTableExists: boolean | null = null;
 let productsTableExists: boolean | null = null;
@@ -128,6 +130,7 @@ function mapMaterialRow(row: ProductionWithMaterialRow): ProductionMaterial | nu
     productName: row.product_name,
     quantity: toNumber(row.quantity),
     unit: row.unit,
+    unitPrice: toNumber(row.unit_price),
   };
 
   if (row.product_id) {
@@ -142,6 +145,7 @@ function normalizeMaterial(input: CreateProductionInput["materials"][number]): P
     productName: input.productName,
     quantity: input.quantity,
     unit: input.unit,
+    unitPrice: toNumber(input.unitPrice ?? 0),
   };
 
   if (input.productId) {
@@ -190,6 +194,27 @@ async function hasProductIdColumn(client: PoolClient): Promise<boolean> {
 
   productIdColumnExists = Boolean(result.rows[0]?.exists);
   return productIdColumnExists;
+}
+
+async function hasUnitPriceColumn(client: PoolClient): Promise<boolean> {
+  if (unitPriceColumnExists !== null) {
+    return unitPriceColumnExists;
+  }
+
+  const result = await client.query<{ exists: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'production_order_materials'
+          AND column_name = 'unit_price'
+      ) AS exists;
+    `,
+  );
+
+  unitPriceColumnExists = Boolean(result.rows[0]?.exists);
+  return unitPriceColumnExists;
 }
 
 async function hasInstallationTeamIdColumn(client: PoolClient): Promise<boolean> {
@@ -532,8 +557,10 @@ async function listById(id: string): Promise<Production | undefined> {
 
   try {
     const canUseProductId = await hasProductIdColumn(client);
+    const canUseUnitPrice = await hasUnitPriceColumn(client);
     const canUseInstallationTeamId = await hasInstallationTeamIdColumn(client);
     const productIdSelect = canUseProductId ? "pom.product_id" : "NULL::text AS product_id";
+    const unitPriceSelect = canUseUnitPrice ? "pom.unit_price" : "0::numeric AS unit_price";
     const installationTeamIdSelect = canUseInstallationTeamId
       ? "po.installation_team_id"
       : "NULL::text AS installation_team_id";
@@ -552,7 +579,8 @@ async function listById(id: string): Promise<Production | undefined> {
           ${productIdSelect},
           pom.product_name,
           pom.quantity,
-          pom.unit
+          pom.unit,
+          ${unitPriceSelect}
         FROM public.production_orders po
         LEFT JOIN public.production_order_materials pom
           ON pom.production_order_id = po.id
@@ -577,9 +605,11 @@ async function findAll(employeeId?: string): Promise<Production[]> {
 
   try {
     const canUseProductId = await hasProductIdColumn(client);
+    const canUseUnitPrice = await hasUnitPriceColumn(client);
     const canUseInstallationTeamId = await hasInstallationTeamIdColumn(client);
     const canUseTeamMembersTable = await hasTeamMembersTable(client);
     const productIdSelect = canUseProductId ? "pom.product_id" : "NULL::text AS product_id";
+    const unitPriceSelect = canUseUnitPrice ? "pom.unit_price" : "0::numeric AS unit_price";
     const installationTeamIdSelect = canUseInstallationTeamId
       ? "po.installation_team_id"
       : "NULL::text AS installation_team_id";
@@ -608,7 +638,8 @@ async function findAll(employeeId?: string): Promise<Production[]> {
           ${productIdSelect},
           pom.product_name,
           pom.quantity,
-          pom.unit
+          pom.unit,
+          ${unitPriceSelect}
         FROM public.production_orders po
         ${employeeJoin}
         LEFT JOIN public.production_order_materials pom
@@ -632,6 +663,7 @@ async function create(payload: CreateProductionRepositoryInput): Promise<Product
     await client.query("BEGIN");
 
     const canUseProductId = await hasProductIdColumn(client);
+    const canUseUnitPrice = await hasUnitPriceColumn(client);
     const canUseInstallationTeamId = await hasInstallationTeamIdColumn(client);
 
     const productionInsert = canUseInstallationTeamId
@@ -700,6 +732,31 @@ async function create(payload: CreateProductionRepositoryInput): Promise<Product
 
     if (canUseProductId) {
       for (const material of payload.materials) {
+        if (canUseUnitPrice) {
+          await client.query(
+            `
+              INSERT INTO public.production_order_materials (
+                production_order_id,
+                product_id,
+                product_name,
+                quantity,
+                unit,
+                unit_price
+              )
+              VALUES ($1, $2, $3, $4, $5, $6);
+            `,
+            [
+              production.id,
+              material.productId ?? null,
+              material.productName,
+              material.quantity,
+              material.unit,
+              toNumber(material.unitPrice ?? 0),
+            ],
+          );
+          continue;
+        }
+
         await client.query(
           `
             INSERT INTO public.production_order_materials (
@@ -722,6 +779,29 @@ async function create(payload: CreateProductionRepositoryInput): Promise<Product
       }
     } else {
       for (const material of payload.materials) {
+        if (canUseUnitPrice) {
+          await client.query(
+            `
+              INSERT INTO public.production_order_materials (
+                production_order_id,
+                product_name,
+                quantity,
+                unit,
+                unit_price
+              )
+              VALUES ($1, $2, $3, $4, $5);
+            `,
+            [
+              production.id,
+              material.productName,
+              material.quantity,
+              material.unit,
+              toNumber(material.unitPrice ?? 0),
+            ],
+          );
+          continue;
+        }
+
         await client.query(
           `
             INSERT INTO public.production_order_materials (

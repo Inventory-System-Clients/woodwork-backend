@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { PoolClient } from "pg";
 import { pool } from "../database/postgres";
-import { Budget, BudgetMaterial, BudgetStatus, CreateBudgetInput } from "../models/budget.model";
+import {
+  Budget,
+  BudgetFinancialSummary,
+  BudgetMaterial,
+  BudgetStatus,
+  CreateBudgetInput,
+  ListBudgetsQueryInput,
+  PaginatedBudgets,
+} from "../models/budget.model";
 import { AppError } from "../utils/app-error";
 
 interface BudgetRow {
@@ -11,6 +19,10 @@ interface BudgetRow {
   status: BudgetStatus;
   delivery_date: string | Date | null;
   total_price: string | number;
+  total_cost: string | number | null;
+  profit_margin: string | number | null;
+  profit_value: string | number | null;
+  labor_cost: string | number | null;
   notes: string | null;
   approved_at: string | Date | null;
   created_at: string | Date;
@@ -53,15 +65,26 @@ export interface SaveBudgetRecordInput {
   status: BudgetStatus;
   deliveryDate: string | null;
   totalPrice: number;
+  totalCost: number;
+  laborCost: number;
+  profitMargin: number;
+  profitValue: number;
   notes: string | null;
   approvedAt: string | null;
   materials: BudgetMaterial[];
 }
 
+interface BudgetCountRow {
+  total_count: string | number;
+}
+
+type ListBudgetsRecordInput = ListBudgetsQueryInput;
+
 let productsTableExists: boolean | null = null;
 let productStockQuantityColumnExists: boolean | null = null;
 let productStockMovementsTableExists: boolean | null = null;
 let productNameColumnExists: boolean | null = null;
+let productLowStockAlertQuantityColumnExists: boolean | null = null;
 
 function toDateString(value: string | Date | null): string | null {
   if (value === null) {
@@ -80,14 +103,87 @@ function toNumber(value: string | number | null): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function round(value: number, decimals: number): number {
+  const factor = 10 ** decimals;
+  return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+function toMoney(value: number): number {
+  return round(Math.max(0, value), 2);
+}
+
+// Official contract: profitMargin is decimal between 0 and 1.
+function normalizeProfitMargin(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+
+  if (value <= 1) {
+    return round(value, 6);
+  }
+
+  if (value <= 100) {
+    return round(value / 100, 6);
+  }
+
+  return 0;
+}
+
+function resolveBudgetFinancialSummary(row: BudgetRow, materials: BudgetMaterial[]): BudgetFinancialSummary {
+  const totalPrice = toMoney(toNumber(row.total_price));
+  const laborCost = toMoney(toNumber(row.labor_cost));
+  const materialsCost = toMoney(
+    materials.reduce((sum, material) => sum + material.quantity * (material.unitPrice ?? 0), 0),
+  );
+
+  let totalCost = toMoney(toNumber(row.total_cost));
+
+  if (totalCost === 0 && materialsCost + laborCost > 0) {
+    totalCost = toMoney(materialsCost + laborCost);
+  }
+
+  let profitMargin = normalizeProfitMargin(toNumber(row.profit_margin));
+
+  if (profitMargin === 0 && totalCost > 0) {
+    const derivedMargin = (totalPrice - totalCost) / totalCost;
+    profitMargin = normalizeProfitMargin(derivedMargin);
+  }
+
+  const storedProfitValue = row.profit_value === null ? Number.NaN : toNumber(row.profit_value);
+  const computedProfitValue = Number.isFinite(storedProfitValue) && storedProfitValue > 0
+    ? storedProfitValue
+    : totalCost * profitMargin;
+  const profitValue = toMoney(computedProfitValue);
+
+  // Business rule requested by frontend: net profit shown as cost - profit.
+  const netProfitValue = round(totalCost - profitValue, 2);
+
+  return {
+    totalPrice,
+    totalCost,
+    laborCost,
+    profitMargin,
+    profitValue,
+    netProfitValue,
+  };
+}
+
 function mapBudgetRow(row: BudgetRow): Budget {
+  const financialSummary = resolveBudgetFinancialSummary(row, []);
+
   return {
     id: row.id,
     clientName: row.client_name,
     description: row.description,
     status: row.status,
     deliveryDate: toDateString(row.delivery_date),
-    totalPrice: toNumber(row.total_price),
+    totalPrice: financialSummary.totalPrice,
+    totalCost: financialSummary.totalCost,
+    laborCost: financialSummary.laborCost,
+    profitMargin: financialSummary.profitMargin,
+    profitValue: financialSummary.profitValue,
+    netProfitValue: financialSummary.netProfitValue,
+    financialSummary,
     notes: row.notes,
     approvedAt: toDateString(row.approved_at),
     createdAt: toDateString(row.created_at) ?? new Date().toISOString(),
@@ -130,24 +226,98 @@ function normalizeMaterial(input: BudgetMaterialInput): BudgetMaterial {
   return material;
 }
 
+function resolveInputFinancialValues(payload: {
+  totalPrice: number;
+  totalCost?: number | null;
+  laborCost?: number | null;
+  profitMargin?: number | null;
+  profitValue?: number | null;
+  materials: BudgetMaterial[];
+}): {
+  totalCost: number;
+  laborCost: number;
+  profitMargin: number;
+  profitValue: number;
+} {
+  const totalPrice = toMoney(payload.totalPrice);
+  const laborCost = toMoney(payload.laborCost ?? 0);
+  const materialsCost = toMoney(
+    payload.materials.reduce((sum, material) => sum + material.quantity * (material.unitPrice ?? 0), 0),
+  );
+
+  const totalCost = toMoney(payload.totalCost ?? materialsCost + laborCost);
+  const profitMargin = normalizeProfitMargin(
+    payload.profitMargin ?? (totalCost > 0 ? (totalPrice - totalCost) / totalCost : 0),
+  );
+
+  const rawProfitValue = payload.profitValue ?? totalCost * profitMargin;
+  const profitValue = toMoney(rawProfitValue);
+
+  return {
+    totalCost,
+    laborCost,
+    profitMargin,
+    profitValue,
+  };
+}
+
 function groupRows(rows: BudgetWithMaterialRow[]): Budget[] {
-  const budgetsById = new Map<string, Budget>();
+  const budgetsById = new Map<string, { budget: Budget; sourceRow: BudgetWithMaterialRow }>();
 
   for (const row of rows) {
-    const existing = budgetsById.get(row.id);
+    const existingBudget = budgetsById.get(row.id);
 
-    if (!existing) {
-      budgetsById.set(row.id, mapBudgetRow(row));
+    if (!existingBudget) {
+      budgetsById.set(row.id, {
+        budget: mapBudgetRow(row),
+        sourceRow: row,
+      });
     }
 
     const material = mapMaterialRow(row);
 
     if (material) {
-      budgetsById.get(row.id)?.materials.push(material);
+      budgetsById.get(row.id)?.budget.materials.push(material);
     }
   }
 
-  return [...budgetsById.values()];
+  const budgets: Budget[] = [];
+
+  for (const { budget, sourceRow } of budgetsById.values()) {
+    const financialSummary = resolveBudgetFinancialSummary(sourceRow, budget.materials);
+
+    budget.totalPrice = financialSummary.totalPrice;
+    budget.totalCost = financialSummary.totalCost;
+    budget.laborCost = financialSummary.laborCost;
+    budget.profitMargin = financialSummary.profitMargin;
+    budget.profitValue = financialSummary.profitValue;
+    budget.netProfitValue = financialSummary.netProfitValue;
+    budget.financialSummary = financialSummary;
+
+    if (budget.status === "approved") {
+      // Approved budgets must never be returned without minimum financial payload.
+      budget.totalCost = financialSummary.totalCost;
+      budget.profitMargin = financialSummary.profitMargin;
+      budget.profitValue = financialSummary.profitValue;
+    }
+
+    budgets.push(budget);
+  }
+
+  return budgets;
+}
+
+function normalizePersistenceError(error: unknown): never {
+  const code = (error as { code?: string }).code;
+
+  if (code === "42P01" || code === "42703") {
+    throw new AppError("Internal server error", 500, {
+      reason:
+        "Budgets financial schema is not configured. Run sql/20260319_add_budget_financials_and_production_material_unit_price.sql",
+    });
+  }
+
+  throw error;
 }
 
 async function hasProductsTable(client: PoolClient): Promise<boolean> {
@@ -232,6 +402,27 @@ async function hasProductNameColumn(client: PoolClient): Promise<boolean> {
   return productNameColumnExists;
 }
 
+async function hasProductLowStockAlertQuantityColumn(client: PoolClient): Promise<boolean> {
+  if (productLowStockAlertQuantityColumnExists !== null) {
+    return productLowStockAlertQuantityColumnExists;
+  }
+
+  const result = await client.query<{ exists: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'products'
+          AND column_name = 'low_stock_alert_quantity'
+      ) AS exists;
+    `,
+  );
+
+  productLowStockAlertQuantityColumnExists = Boolean(result.rows[0]?.exists);
+  return productLowStockAlertQuantityColumnExists;
+}
+
 async function ensureStockControlSchema(client: PoolClient): Promise<void> {
   const hasProducts = await hasProductsTable(client);
   const hasStockColumn = await hasProductStockQuantityColumn(client);
@@ -243,6 +434,98 @@ async function ensureStockControlSchema(client: PoolClient): Promise<void> {
       500,
     );
   }
+}
+
+async function ensureProductsCatalogSchema(client: PoolClient): Promise<void> {
+  const hasProducts = await hasProductsTable(client);
+  const hasStockColumn = await hasProductStockQuantityColumn(client);
+  const hasNameColumn = await hasProductNameColumn(client);
+  const hasLowStockAlertColumn = await hasProductLowStockAlertQuantityColumn(client);
+
+  if (!hasProducts || !hasStockColumn || !hasNameColumn || !hasLowStockAlertColumn) {
+    throw new AppError(
+      "Products schema is not configured. Run sql/20260317_add_product_stock_movements.sql and sql/20260318_add_low_stock_alert_to_products.sql",
+      500,
+    );
+  }
+}
+
+async function resolveOrCreateProductIdForMaterial(
+  client: PoolClient,
+  budgetId: string,
+  material: BudgetMaterial,
+): Promise<string> {
+  if (material.productId && material.productId.trim().length > 0) {
+    return material.productId.trim();
+  }
+
+  const productName = material.productName.trim();
+
+  if (productName.length === 0) {
+    throw new AppError("Cannot create material without product name", 400, {
+      budgetId,
+      material,
+    });
+  }
+
+  await ensureProductsCatalogSchema(client);
+
+  const productByNameResult = await client.query<{ id: string }>(
+    `
+      SELECT id::text AS id
+      FROM public.products
+      WHERE LOWER(BTRIM(name)) = LOWER(BTRIM($1))
+      ORDER BY id::text
+      LIMIT 2;
+    `,
+    [productName],
+  );
+
+  if (productByNameResult.rows.length === 1) {
+    return productByNameResult.rows[0].id;
+  }
+
+  if (productByNameResult.rows.length > 1) {
+    throw new AppError("Multiple products found for material name", 409, {
+      budgetId,
+      productName,
+    });
+  }
+
+  const productId = randomUUID();
+
+  await client.query(
+    `
+      INSERT INTO public.products (
+        id,
+        name,
+        stock_quantity,
+        low_stock_alert_quantity
+      )
+      VALUES ($1, $2, 0, 0);
+    `,
+    [productId, productName],
+  );
+
+  return productId;
+}
+
+async function resolveMaterialsWithProducts(
+  client: PoolClient,
+  budgetId: string,
+  materials: BudgetMaterial[],
+): Promise<BudgetMaterial[]> {
+  const resolvedMaterials: BudgetMaterial[] = [];
+
+  for (const material of materials) {
+    const productId = await resolveOrCreateProductIdForMaterial(client, budgetId, material);
+    resolvedMaterials.push({
+      ...material,
+      productId,
+    });
+  }
+
+  return resolvedMaterials;
 }
 
 async function resolveProductIdForBudgetMaterial(
@@ -382,67 +665,129 @@ async function deductBudgetMaterialsFromStock(client: PoolClient, budgetId: stri
 }
 
 async function listByIdWithClient(client: PoolClient, id: string): Promise<Budget | undefined> {
-  const result = await client.query<BudgetWithMaterialRow>(
-    `
-      SELECT
-        b.id,
-        b.client_name,
-        b.description,
-        b.status,
-        b.delivery_date,
-        b.total_price,
-        b.notes,
-        b.approved_at,
-        b.created_at,
-        b.updated_at,
-        bm.product_id,
-        bm.product_name,
-        bm.quantity,
-        bm.unit,
-        bm.unit_price
-      FROM public.budgets b
-      LEFT JOIN public.budget_materials bm
-        ON bm.budget_id = b.id
-      WHERE b.id = $1
-      ORDER BY bm.id ASC;
-    `,
-    [id],
-  );
+  try {
+    const result = await client.query<BudgetWithMaterialRow>(
+      `
+        SELECT
+          b.id,
+          b.client_name,
+          b.description,
+          b.status,
+          b.delivery_date,
+          b.total_price,
+          b.total_cost,
+          b.profit_margin,
+          b.profit_value,
+          b.labor_cost,
+          b.notes,
+          b.approved_at,
+          b.created_at,
+          b.updated_at,
+          bm.product_id,
+          bm.product_name,
+          bm.quantity,
+          bm.unit,
+          bm.unit_price
+        FROM public.budgets b
+        LEFT JOIN public.budget_materials bm
+          ON bm.budget_id = b.id
+        WHERE b.id = $1
+        ORDER BY bm.id ASC;
+      `,
+      [id],
+    );
 
-  if (result.rows.length === 0) {
-    return undefined;
+    if (result.rows.length === 0) {
+      return undefined;
+    }
+
+    return groupRows(result.rows)[0];
+  } catch (error) {
+    normalizePersistenceError(error);
   }
-
-  return groupRows(result.rows)[0];
 }
 
-async function findAll(): Promise<Budget[]> {
-  const result = await pool.query<BudgetWithMaterialRow>(
-    `
-      SELECT
-        b.id,
-        b.client_name,
-        b.description,
-        b.status,
-        b.delivery_date,
-        b.total_price,
-        b.notes,
-        b.approved_at,
-        b.created_at,
-        b.updated_at,
-        bm.product_id,
-        bm.product_name,
-        bm.quantity,
-        bm.unit,
-        bm.unit_price
-      FROM public.budgets b
-      LEFT JOIN public.budget_materials bm
-        ON bm.budget_id = b.id
-      ORDER BY b.created_at DESC, bm.id ASC;
-    `,
-  );
+async function findAll(query: ListBudgetsRecordInput): Promise<PaginatedBudgets> {
+  const statusFilter = query.status ?? null;
+  const startDateFilter = query.startDate ?? null;
+  const endDateFilter = query.endDate ?? null;
+  const clientNameFilter = query.clientName ?? null;
+  const offset = (query.page - 1) * query.limit;
 
-  return groupRows(result.rows);
+  try {
+    const countResult = await pool.query<BudgetCountRow>(
+      `
+        SELECT
+          COUNT(*) AS total_count
+        FROM public.budgets b
+        WHERE ($1::text IS NULL OR b.status = $1)
+          AND ($2::timestamptz IS NULL OR COALESCE(b.approved_at, b.created_at) >= $2)
+          AND ($3::timestamptz IS NULL OR COALESCE(b.approved_at, b.created_at) <= $3)
+          AND ($4::text IS NULL OR LOWER(b.client_name) LIKE CONCAT('%', LOWER(BTRIM($4)), '%'));
+      `,
+      [statusFilter, startDateFilter, endDateFilter, clientNameFilter],
+    );
+
+    const totalItems = toNumber(countResult.rows[0]?.total_count ?? 0);
+    const totalPages = totalItems > 0 ? Math.ceil(totalItems / query.limit) : 0;
+
+    const result = await pool.query<BudgetWithMaterialRow>(
+      `
+        WITH filtered_budgets AS (
+          SELECT
+            b.id
+          FROM public.budgets b
+          WHERE ($1::text IS NULL OR b.status = $1)
+            AND ($2::timestamptz IS NULL OR COALESCE(b.approved_at, b.created_at) >= $2)
+            AND ($3::timestamptz IS NULL OR COALESCE(b.approved_at, b.created_at) <= $3)
+            AND ($4::text IS NULL OR LOWER(b.client_name) LIKE CONCAT('%', LOWER(BTRIM($4)), '%'))
+          ORDER BY COALESCE(b.approved_at, b.created_at) DESC, b.created_at DESC
+          LIMIT $5 OFFSET $6
+        )
+        SELECT
+          b.id,
+          b.client_name,
+          b.description,
+          b.status,
+          b.delivery_date,
+          b.total_price,
+          b.total_cost,
+          b.profit_margin,
+          b.profit_value,
+          b.labor_cost,
+          b.notes,
+          b.approved_at,
+          b.created_at,
+          b.updated_at,
+          bm.product_id,
+          bm.product_name,
+          bm.quantity,
+          bm.unit,
+          bm.unit_price
+        FROM filtered_budgets fb
+        INNER JOIN public.budgets b
+          ON b.id = fb.id
+        LEFT JOIN public.budget_materials bm
+          ON bm.budget_id = b.id
+        ORDER BY COALESCE(b.approved_at, b.created_at) DESC, b.created_at DESC, bm.id ASC;
+      `,
+      [statusFilter, startDateFilter, endDateFilter, clientNameFilter, query.limit, offset],
+    );
+
+    return {
+      data: groupRows(result.rows),
+      pagination: {
+        page: query.page,
+        limit: query.limit,
+        totalItems,
+        totalPages,
+        hasNextPage: totalPages > 0 && query.page < totalPages,
+        hasPreviousPage: query.page > 1,
+      },
+    };
+  } catch (error) {
+    normalizePersistenceError(error);
+  }
 }
 
 async function findById(id: string): Promise<Budget | undefined> {
@@ -488,6 +833,16 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
     await client.query("BEGIN");
 
     const budgetId = randomUUID();
+    const normalizedMaterials = payload.materials.map(normalizeMaterial);
+    const materialsWithProducts = await resolveMaterialsWithProducts(client, budgetId, normalizedMaterials);
+    const financialValues = resolveInputFinancialValues({
+      totalPrice: payload.totalPrice,
+      totalCost: payload.totalCost,
+      laborCost: payload.laborCost,
+      profitMargin: payload.profitMargin,
+      profitValue: payload.profitValue,
+      materials: materialsWithProducts,
+    });
 
     await client.query(
       `
@@ -498,10 +853,27 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
           status,
           delivery_date,
           total_price,
+          total_cost,
+          profit_margin,
+          profit_value,
+          labor_cost,
           notes,
           approved_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $4 = 'approved' THEN NOW() ELSE NULL END);
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7,
+          $8,
+          $9,
+          $10,
+          $11,
+          CASE WHEN $4 = 'approved' THEN NOW() ELSE NULL END
+        );
       `,
       [
         budgetId,
@@ -510,13 +882,15 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
         payload.status,
         payload.deliveryDate ?? null,
         payload.totalPrice,
+        financialValues.totalCost,
+        financialValues.profitMargin,
+        financialValues.profitValue,
+        financialValues.laborCost,
         payload.notes ?? null,
       ],
     );
 
-    const normalizedMaterials = payload.materials.map(normalizeMaterial);
-
-    await insertMaterials(client, budgetId, normalizedMaterials);
+    await insertMaterials(client, budgetId, materialsWithProducts);
 
     await client.query("COMMIT");
 
@@ -529,7 +903,7 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
     return budget;
   } catch (error) {
     await client.query("ROLLBACK");
-    throw error;
+    normalizePersistenceError(error);
   } finally {
     client.release();
   }
@@ -541,6 +915,18 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
   try {
     await client.query("BEGIN");
 
+    const normalizedMaterials = payload.materials.map(normalizeMaterial);
+    const materialsWithProducts = await resolveMaterialsWithProducts(client, id, normalizedMaterials);
+
+    const financialValues = resolveInputFinancialValues({
+      totalPrice: payload.totalPrice,
+      totalCost: payload.totalCost,
+      laborCost: payload.laborCost,
+      profitMargin: payload.profitMargin,
+      profitValue: payload.profitValue,
+      materials: materialsWithProducts,
+    });
+
     const updateResult = await client.query<BudgetRow>(
       `
         UPDATE public.budgets
@@ -550,8 +936,12 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
           status = $4,
           delivery_date = $5,
           total_price = $6,
-          notes = $7,
-          approved_at = $8,
+          total_cost = $7,
+          profit_margin = $8,
+          profit_value = $9,
+          labor_cost = $10,
+          notes = $11,
+          approved_at = $12,
           updated_at = NOW()
         WHERE id = $1
         RETURNING
@@ -561,6 +951,10 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
           status,
           delivery_date,
           total_price,
+          total_cost,
+          profit_margin,
+          profit_value,
+          labor_cost,
           notes,
           approved_at,
           created_at,
@@ -573,6 +967,10 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
         payload.status,
         payload.deliveryDate,
         payload.totalPrice,
+        financialValues.totalCost,
+        financialValues.profitMargin,
+        financialValues.profitValue,
+        financialValues.laborCost,
         payload.notes,
         payload.approvedAt,
       ],
@@ -591,14 +989,14 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
       [id],
     );
 
-    await insertMaterials(client, id, payload.materials);
+    await insertMaterials(client, id, materialsWithProducts);
 
     await client.query("COMMIT");
 
     return listByIdWithClient(client, id);
   } catch (error) {
     await client.query("ROLLBACK");
-    throw error;
+    normalizePersistenceError(error);
   } finally {
     client.release();
   }
@@ -619,6 +1017,10 @@ async function approve(id: string): Promise<Budget | undefined> {
           status,
           delivery_date,
           total_price,
+          total_cost,
+          profit_margin,
+          profit_value,
+          labor_cost,
           notes,
           approved_at,
           created_at,
@@ -658,7 +1060,7 @@ async function approve(id: string): Promise<Budget | undefined> {
     return listByIdWithClient(client, id);
   } catch (error) {
     await client.query("ROLLBACK");
-    throw error;
+    normalizePersistenceError(error);
   } finally {
     client.release();
   }
