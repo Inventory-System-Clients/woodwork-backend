@@ -25,6 +25,7 @@ interface BudgetRow {
   delivery_date: string | Date | null;
   total_price: string | number;
   total_cost: string | number | null;
+  costs_applicable_value: string | number | null;
   profit_margin: string | number | null;
   profit_value: string | number | null;
   labor_cost: string | number | null;
@@ -98,6 +99,7 @@ export interface SaveBudgetRecordInput {
   deliveryDate: string | null;
   totalPrice: number;
   totalCost: number;
+  costsApplicableValue: number;
   laborCost: number;
   profitMargin: number;
   profitValue: number;
@@ -173,6 +175,7 @@ function resolveBudgetFinancialSummary(
     materials.reduce((sum, material) => sum + material.quantity * (material.unitPrice ?? 0), 0),
   );
   const expenseDepartmentsCost = toMoney(expenseDepartments.reduce((sum, item) => sum + item.amount, 0));
+  const costsApplicableValue = toMoney(toNumber(row.costs_applicable_value));
   const costsAppliedAt = toDateString(row.costs_applied_at);
   const costsAppliedValue = toMoney(toNumber(row.costs_applied_value));
 
@@ -197,11 +200,12 @@ function resolveBudgetFinancialSummary(
 
   // Business rule requested by frontend: net profit shown as cost - profit.
   const netProfitValue = round(totalCost - profitValue, 2);
-  const remainingCostToApply = toMoney(Math.max(0, totalCost - costsAppliedValue));
+  const remainingCostToApply = toMoney(Math.max(0, costsApplicableValue - costsAppliedValue));
 
   return {
     totalPrice,
     totalCost,
+    costsApplicableValue,
     expenseDepartmentsCost,
     laborCost,
     costsAppliedValue,
@@ -225,6 +229,7 @@ function mapBudgetRow(row: BudgetRow): Budget {
     deliveryDate: toDateString(row.delivery_date),
     totalPrice: financialSummary.totalPrice,
     totalCost: financialSummary.totalCost,
+    costsApplicableValue: financialSummary.costsApplicableValue,
     laborCost: financialSummary.laborCost,
     profitMargin: financialSummary.profitMargin,
     profitValue: financialSummary.profitValue,
@@ -292,6 +297,7 @@ function normalizeExpenseDepartment(input: BudgetExpenseDepartmentInput): Budget
 function resolveInputFinancialValues(payload: {
   totalPrice: number;
   totalCost?: number | null;
+  costsApplicableValue?: number | null;
   laborCost?: number | null;
   profitMargin?: number | null;
   profitValue?: number | null;
@@ -299,6 +305,7 @@ function resolveInputFinancialValues(payload: {
   expenseDepartments: BudgetExpenseDepartment[];
 }): {
   totalCost: number;
+  costsApplicableValue: number;
   laborCost: number;
   profitMargin: number;
   profitValue: number;
@@ -311,6 +318,7 @@ function resolveInputFinancialValues(payload: {
   const expenseDepartmentsCost = toMoney(payload.expenseDepartments.reduce((sum, item) => sum + item.amount, 0));
 
   const totalCost = toMoney(payload.totalCost ?? materialsCost + laborCost + expenseDepartmentsCost);
+  const costsApplicableValue = toMoney(payload.costsApplicableValue ?? totalCost);
   const profitMargin = normalizeProfitMargin(
     payload.profitMargin ?? (totalCost > 0 ? (totalPrice - totalCost) / totalCost : 0),
   );
@@ -320,6 +328,7 @@ function resolveInputFinancialValues(payload: {
 
   return {
     totalCost,
+    costsApplicableValue,
     laborCost,
     profitMargin,
     profitValue,
@@ -434,6 +443,7 @@ function applyExpenseDepartmentsToBudgets(budgets: Budget[], grouped: Map<string
         delivery_date: budget.deliveryDate,
         total_price: budget.totalPrice,
         total_cost: budget.totalCost,
+        costs_applicable_value: budget.costsApplicableValue,
         profit_margin: budget.profitMargin,
         profit_value: budget.profitValue,
         labor_cost: budget.laborCost,
@@ -450,6 +460,7 @@ function applyExpenseDepartmentsToBudgets(budgets: Budget[], grouped: Map<string
 
     budget.totalPrice = financialSummary.totalPrice;
     budget.totalCost = financialSummary.totalCost;
+    budget.costsApplicableValue = financialSummary.costsApplicableValue;
     budget.laborCost = financialSummary.laborCost;
     budget.profitMargin = financialSummary.profitMargin;
     budget.profitValue = financialSummary.profitValue;
@@ -468,7 +479,7 @@ function normalizePersistenceError(error: unknown): never {
   if (code === "42P01" || code === "42703") {
     throw new AppError("Internal server error", 500, {
       reason:
-        "Budgets schema is not configured. Run sql/20260319_add_budget_financials_and_production_material_unit_price.sql, sql/20260331_add_budget_category.sql, sql/20260331_add_budget_expense_departments.sql and sql/20260331_add_budget_pre_approved_status_and_cost_application.sql",
+        "Budgets schema is not configured. Run sql/20260319_add_budget_financials_and_production_material_unit_price.sql, sql/20260331_add_budget_category.sql, sql/20260331_add_budget_expense_departments.sql, sql/20260331_add_budget_pre_approved_status_and_cost_application.sql and sql/20260331_add_budget_costs_applicable_value.sql",
     });
   }
 
@@ -903,6 +914,7 @@ async function listByIdWithClient(client: PoolClient, id: string): Promise<Budge
           b.delivery_date,
           b.total_price,
           b.total_cost,
+          b.costs_applicable_value,
           b.profit_margin,
           b.profit_value,
           b.labor_cost,
@@ -988,6 +1000,7 @@ async function findAll(query: ListBudgetsRecordInput): Promise<PaginatedBudgets>
           b.delivery_date,
           b.total_price,
           b.total_cost,
+          b.costs_applicable_value,
           b.profit_margin,
           b.profit_value,
           b.labor_cost,
@@ -1145,6 +1158,7 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
     const financialValues = resolveInputFinancialValues({
       totalPrice: payload.totalPrice,
       totalCost: payload.totalCost,
+      costsApplicableValue: payload.costsApplicableValue,
       laborCost: payload.laborCost,
       profitMargin: payload.profitMargin,
       profitValue: payload.profitValue,
@@ -1163,6 +1177,7 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
           delivery_date,
           total_price,
           total_cost,
+          costs_applicable_value,
           profit_margin,
           profit_value,
           labor_cost,
@@ -1177,16 +1192,17 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
           $3,
           $4,
           $5,
-          CASE WHEN $5 = 'approved' THEN NOW() ELSE NULL END,
-          CASE WHEN $5 IN ('pre_approved', 'approved') THEN NOW() ELSE NULL END,
-          CASE WHEN $5 IN ('pre_approved', 'approved') THEN $13 ELSE 0 END
+          $6,
           $7,
           $8,
           $9,
           $10,
           $11,
           $12,
-          CASE WHEN $5 = 'approved' THEN NOW() ELSE NULL END
+          $13,
+          CASE WHEN $5 = 'approved' THEN NOW() ELSE NULL END,
+          CASE WHEN $5 IN ('pre_approved', 'approved') THEN NOW() ELSE NULL END,
+          CASE WHEN $5 IN ('pre_approved', 'approved') THEN $9 ELSE 0 END
         );
       `,
       [
@@ -1198,11 +1214,11 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
         payload.deliveryDate ?? null,
         payload.totalPrice,
         financialValues.totalCost,
+        financialValues.costsApplicableValue,
         financialValues.profitMargin,
         financialValues.profitValue,
         financialValues.laborCost,
         payload.notes ?? null,
-        financialValues.totalCost,
       ],
     );
 
@@ -1244,6 +1260,7 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
     const financialValues = resolveInputFinancialValues({
       totalPrice: payload.totalPrice,
       totalCost: payload.totalCost,
+      costsApplicableValue: payload.costsApplicableValue,
       laborCost: payload.laborCost,
       profitMargin: payload.profitMargin,
       profitValue: payload.profitValue,
@@ -1262,17 +1279,18 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
           delivery_date = $6,
           total_price = $7,
           total_cost = $8,
-          profit_margin = $9,
-          profit_value = $10,
-          labor_cost = $11,
-          notes = $12,
-          approved_at = $13,
+          costs_applicable_value = $9,
+          profit_margin = $10,
+          profit_value = $11,
+          labor_cost = $12,
+          notes = $13,
+          approved_at = $14,
           costs_applied_at = CASE
             WHEN $5 IN ('pre_approved', 'approved') THEN COALESCE(costs_applied_at, NOW())
             ELSE costs_applied_at
           END,
           costs_applied_value = CASE
-            WHEN $5 IN ('pre_approved', 'approved') THEN $14
+            WHEN $5 IN ('pre_approved', 'approved') THEN $9
             ELSE costs_applied_value
           END,
           updated_at = NOW()
@@ -1286,6 +1304,7 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
           delivery_date,
           total_price,
           total_cost,
+          costs_applicable_value,
           profit_margin,
           profit_value,
           labor_cost,
@@ -1305,12 +1324,12 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
         payload.deliveryDate,
         payload.totalPrice,
         financialValues.totalCost,
+        financialValues.costsApplicableValue,
         financialValues.profitMargin,
         financialValues.profitValue,
         financialValues.laborCost,
         payload.notes,
         payload.approvedAt,
-        financialValues.totalCost,
       ],
     );
 
@@ -1367,6 +1386,7 @@ async function approve(id: string): Promise<Budget | undefined> {
           delivery_date,
           total_price,
           total_cost,
+          costs_applicable_value,
           profit_margin,
           profit_value,
           labor_cost,
@@ -1400,7 +1420,7 @@ async function approve(id: string): Promise<Budget | undefined> {
             status = 'approved',
             approved_at = COALESCE(approved_at, NOW()),
             costs_applied_at = COALESCE(costs_applied_at, NOW()),
-            costs_applied_value = COALESCE(NULLIF(total_cost, 0), costs_applied_value, 0),
+            costs_applied_value = GREATEST(COALESCE(costs_applicable_value, 0), 0),
             updated_at = NOW()
           WHERE id = $1;
         `,

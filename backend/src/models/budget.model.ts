@@ -63,6 +63,7 @@ export const createBudgetSchema = z.object({
   deliveryDate: deliveryDateSchema.optional().nullable(),
   totalPrice: monetarySchema.default(0),
   totalCost: monetarySchema.optional(),
+  costsApplicableValue: monetarySchema.optional(),
   laborCost: monetarySchema.optional(),
   profitMargin: profitMarginSchema.optional(),
   profitValue: monetarySchema.optional(),
@@ -80,6 +81,7 @@ export const updateBudgetSchema = z
     deliveryDate: deliveryDateSchema.optional().nullable(),
     totalPrice: monetarySchema.optional(),
     totalCost: monetarySchema.optional(),
+    costsApplicableValue: monetarySchema.optional(),
     laborCost: monetarySchema.optional(),
     profitMargin: profitMarginSchema.optional(),
     profitValue: monetarySchema.optional(),
@@ -141,6 +143,7 @@ export interface ExpenseDepartmentCatalogItem {
 export interface BudgetFinancialSummary {
   totalPrice: number;
   totalCost: number;
+  costsApplicableValue: number;
   expenseDepartmentsCost: number;
   laborCost: number;
   costsAppliedValue: number;
@@ -160,6 +163,7 @@ export interface Budget {
   deliveryDate: string | null;
   totalPrice: number;
   totalCost: number;
+  costsApplicableValue: number;
   laborCost: number;
   profitMargin: number;
   profitValue: number;
