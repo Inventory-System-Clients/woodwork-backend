@@ -23,7 +23,7 @@ const profitMarginSchema = z.coerce
 const optionalTextField = (maxLength: number) =>
   z.string().trim().min(1).max(maxLength).optional().nullable();
 
-export const budgetStatusSchema = z.enum(["draft", "pending", "approved", "rejected"]);
+export const budgetStatusSchema = z.enum(["draft", "pending", "pre_approved", "approved", "rejected"]);
 export type BudgetStatus = z.infer<typeof budgetStatusSchema>;
 
 export const budgetCategorySchema = z.enum(["arquitetonico", "executivo"]);
@@ -143,6 +143,9 @@ export interface BudgetFinancialSummary {
   totalCost: number;
   expenseDepartmentsCost: number;
   laborCost: number;
+  costsAppliedValue: number;
+  costsAppliedAt: string | null;
+  remainingCostToApply: number;
   profitMargin: number;
   profitValue: number;
   netProfitValue: number;
@@ -164,6 +167,8 @@ export interface Budget {
   financialSummary: BudgetFinancialSummary;
   notes: string | null;
   approvedAt: string | null;
+  costsAppliedAt: string | null;
+  costsAppliedValue: number;
   createdAt: string;
   updatedAt: string;
   materials: BudgetMaterial[];

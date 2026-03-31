@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS public.budgets (
   CONSTRAINT chk_budgets_category
     CHECK (category IN ('arquitetonico', 'executivo')),
   CONSTRAINT chk_budgets_status
-    CHECK (status IN ('draft', 'pending', 'approved', 'rejected'))
+    CHECK (status IN ('draft', 'pending', 'pre_approved', 'approved', 'rejected'))
 );
 
 CREATE TABLE IF NOT EXISTS public.budget_materials (

@@ -30,6 +30,8 @@ interface BudgetRow {
   labor_cost: string | number | null;
   notes: string | null;
   approved_at: string | Date | null;
+  costs_applied_at: string | Date | null;
+  costs_applied_value: string | number | null;
   created_at: string | Date;
   updated_at: string | Date;
 }
@@ -171,6 +173,8 @@ function resolveBudgetFinancialSummary(
     materials.reduce((sum, material) => sum + material.quantity * (material.unitPrice ?? 0), 0),
   );
   const expenseDepartmentsCost = toMoney(expenseDepartments.reduce((sum, item) => sum + item.amount, 0));
+  const costsAppliedAt = toDateString(row.costs_applied_at);
+  const costsAppliedValue = toMoney(toNumber(row.costs_applied_value));
 
   let totalCost = toMoney(toNumber(row.total_cost));
 
@@ -193,12 +197,16 @@ function resolveBudgetFinancialSummary(
 
   // Business rule requested by frontend: net profit shown as cost - profit.
   const netProfitValue = round(totalCost - profitValue, 2);
+  const remainingCostToApply = toMoney(Math.max(0, totalCost - costsAppliedValue));
 
   return {
     totalPrice,
     totalCost,
     expenseDepartmentsCost,
     laborCost,
+    costsAppliedValue,
+    costsAppliedAt,
+    remainingCostToApply,
     profitMargin,
     profitValue,
     netProfitValue,
@@ -224,6 +232,8 @@ function mapBudgetRow(row: BudgetRow): Budget {
     financialSummary,
     notes: row.notes,
     approvedAt: toDateString(row.approved_at),
+    costsAppliedAt: financialSummary.costsAppliedAt,
+    costsAppliedValue: financialSummary.costsAppliedValue,
     createdAt: toDateString(row.created_at) ?? new Date().toISOString(),
     updatedAt: toDateString(row.updated_at) ?? new Date().toISOString(),
     materials: [],
@@ -429,6 +439,8 @@ function applyExpenseDepartmentsToBudgets(budgets: Budget[], grouped: Map<string
         labor_cost: budget.laborCost,
         notes: budget.notes,
         approved_at: budget.approvedAt,
+        costs_applied_at: budget.costsAppliedAt,
+        costs_applied_value: budget.costsAppliedValue,
         created_at: budget.createdAt,
         updated_at: budget.updatedAt,
       },
@@ -442,6 +454,8 @@ function applyExpenseDepartmentsToBudgets(budgets: Budget[], grouped: Map<string
     budget.profitMargin = financialSummary.profitMargin;
     budget.profitValue = financialSummary.profitValue;
     budget.netProfitValue = financialSummary.netProfitValue;
+    budget.costsAppliedAt = financialSummary.costsAppliedAt;
+    budget.costsAppliedValue = financialSummary.costsAppliedValue;
     budget.financialSummary = financialSummary;
   }
 
@@ -454,7 +468,7 @@ function normalizePersistenceError(error: unknown): never {
   if (code === "42P01" || code === "42703") {
     throw new AppError("Internal server error", 500, {
       reason:
-        "Budgets schema is not configured. Run sql/20260319_add_budget_financials_and_production_material_unit_price.sql, sql/20260331_add_budget_category.sql and sql/20260331_add_budget_expense_departments.sql",
+        "Budgets schema is not configured. Run sql/20260319_add_budget_financials_and_production_material_unit_price.sql, sql/20260331_add_budget_category.sql, sql/20260331_add_budget_expense_departments.sql and sql/20260331_add_budget_pre_approved_status_and_cost_application.sql",
     });
   }
 
@@ -894,6 +908,8 @@ async function listByIdWithClient(client: PoolClient, id: string): Promise<Budge
           b.labor_cost,
           b.notes,
           b.approved_at,
+          b.costs_applied_at,
+          b.costs_applied_value,
           b.created_at,
           b.updated_at,
           bm.product_id,
@@ -977,6 +993,8 @@ async function findAll(query: ListBudgetsRecordInput): Promise<PaginatedBudgets>
           b.labor_cost,
           b.notes,
           b.approved_at,
+          b.costs_applied_at,
+          b.costs_applied_value,
           b.created_at,
           b.updated_at,
           bm.product_id,
@@ -1149,7 +1167,9 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
           profit_value,
           labor_cost,
           notes,
-          approved_at
+          approved_at,
+          costs_applied_at,
+          costs_applied_value
         )
         VALUES (
           $1,
@@ -1157,7 +1177,9 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
           $3,
           $4,
           $5,
-          $6,
+          CASE WHEN $5 = 'approved' THEN NOW() ELSE NULL END,
+          CASE WHEN $5 IN ('pre_approved', 'approved') THEN NOW() ELSE NULL END,
+          CASE WHEN $5 IN ('pre_approved', 'approved') THEN $13 ELSE 0 END
           $7,
           $8,
           $9,
@@ -1180,6 +1202,7 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
         financialValues.profitValue,
         financialValues.laborCost,
         payload.notes ?? null,
+        financialValues.totalCost,
       ],
     );
 
@@ -1244,6 +1267,14 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
           labor_cost = $11,
           notes = $12,
           approved_at = $13,
+          costs_applied_at = CASE
+            WHEN $5 IN ('pre_approved', 'approved') THEN COALESCE(costs_applied_at, NOW())
+            ELSE costs_applied_at
+          END,
+          costs_applied_value = CASE
+            WHEN $5 IN ('pre_approved', 'approved') THEN $14
+            ELSE costs_applied_value
+          END,
           updated_at = NOW()
         WHERE id = $1
         RETURNING
@@ -1260,6 +1291,8 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
           labor_cost,
           notes,
           approved_at,
+            costs_applied_at,
+            costs_applied_value,
           created_at,
           updated_at;
       `,
@@ -1277,6 +1310,7 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
         financialValues.laborCost,
         payload.notes,
         payload.approvedAt,
+        financialValues.totalCost,
       ],
     );
 
@@ -1338,6 +1372,8 @@ async function approve(id: string): Promise<Budget | undefined> {
           labor_cost,
           notes,
           approved_at,
+          costs_applied_at,
+          costs_applied_value,
           created_at,
           updated_at
         FROM public.budgets
@@ -1363,6 +1399,8 @@ async function approve(id: string): Promise<Budget | undefined> {
           SET
             status = 'approved',
             approved_at = COALESCE(approved_at, NOW()),
+            costs_applied_at = COALESCE(costs_applied_at, NOW()),
+            costs_applied_value = COALESCE(NULLIF(total_cost, 0), costs_applied_value, 0),
             updated_at = NOW()
           WHERE id = $1;
         `,
