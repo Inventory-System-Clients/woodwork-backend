@@ -27,7 +27,13 @@ export const budgetStatusSchema = z.enum(["draft", "pending", "approved", "rejec
 export type BudgetStatus = z.infer<typeof budgetStatusSchema>;
 
 export const budgetMaterialSchema = z.object({
-  productId: z.string().trim().min(1).optional(),
+  productId: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .nullable()
+    .transform((value) => value ?? undefined),
   productName: z.string().trim().min(1, "productName is required").max(255),
   quantity: z.coerce.number().positive("quantity must be greater than zero"),
   unit: z.string().trim().min(1, "unit is required").max(80),
