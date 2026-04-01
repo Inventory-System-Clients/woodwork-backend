@@ -100,6 +100,38 @@ const STATUS_ALIASES: Record<string, string> = {
   completed: "Entregue",
 };
 
+const STAGE_CANONICAL_KEYS: Record<string, string> = {
+  pending: "pendente",
+  pendente: "pendente",
+  cutting: "corte",
+  corte: "corte",
+  assembly: "montagem",
+  montagem: "montagem",
+  finishing: "acabamento",
+  acabamento: "acabamento",
+  quality_check: "controle",
+  qualitycheck: "controle",
+  quality: "controle",
+  controle: "controle",
+  approved: "aprovado",
+  aprovado: "aprovado",
+  delivered: "entregue",
+  entregue: "entregue",
+  completed: "entregue",
+  concluido: "entregue",
+  concluida: "entregue",
+};
+
+const STAGE_LABEL_BY_CANONICAL_KEY: Record<string, string> = {
+  pendente: "Pendente",
+  corte: "Corte",
+  montagem: "Montagem",
+  acabamento: "Acabamento",
+  controle: "Controle",
+  aprovado: "Aprovado",
+  entregue: "Entregue",
+};
+
 const DEFAULT_STAGE_NAMES = [
   "Pendente",
   "Corte",
@@ -112,7 +144,18 @@ const DEFAULT_STAGE_NAMES = [
 
 function toPortugueseStageName(stageName: string): string {
   const normalized = normalizeStageName(stageName);
+  const canonicalKey = STAGE_CANONICAL_KEYS[normalized];
+
+  if (canonicalKey) {
+    return STAGE_LABEL_BY_CANONICAL_KEY[canonicalKey];
+  }
+
   return STATUS_ALIASES[normalized] ?? stageName.trim();
+}
+
+function toCanonicalStageKey(stageName: string): string {
+  const normalized = normalizeStageName(stageName);
+  return STAGE_CANONICAL_KEYS[normalized] ?? normalized;
 }
 
 function normalizeStageName(value: string): string {
@@ -781,7 +824,8 @@ async function resolveStatusStage(
   }
 
   const stageName = input.stageName?.trim() ?? "";
-  const normalizedName = normalizeStageName(stageName);
+  const normalizedName = toCanonicalStageKey(stageName);
+  const displayName = toPortugueseStageName(stageName);
 
   if (!stageName || !normalizedName) {
     throw new AppError("stageName is required", 400);
@@ -800,7 +844,7 @@ async function resolveStatusStage(
         name,
         normalized_name;
     `,
-    [randomUUID(), stageName, normalizedName],
+    [randomUUID(), displayName, normalizedName],
   );
 
   return inserted.rows[0];
@@ -905,12 +949,33 @@ async function listStatusOptions(): Promise<ProductionStageOption[]> {
       `,
     );
 
-    return result.rows.map((row) => ({
-      id: row.id,
-      name: toPortugueseStageName(row.name),
-      normalizedName: row.normalized_name,
-      usageCount: toNumber(row.usage_count ?? 0),
-    }));
+    const groupedByCanonicalKey = new Map<string, ProductionStageOption>();
+
+    for (const row of result.rows) {
+      const canonicalKey = toCanonicalStageKey(row.normalized_name || row.name);
+      const current = groupedByCanonicalKey.get(canonicalKey);
+      const nextUsage = toNumber(row.usage_count ?? 0);
+
+      if (!current) {
+        groupedByCanonicalKey.set(canonicalKey, {
+          id: row.id,
+          name: toPortugueseStageName(row.name),
+          normalizedName: canonicalKey,
+          usageCount: nextUsage,
+        });
+        continue;
+      }
+
+      current.usageCount += nextUsage;
+    }
+
+    return [...groupedByCanonicalKey.values()].sort((a, b) => {
+      if (b.usageCount !== a.usageCount) {
+        return b.usageCount - a.usageCount;
+      }
+
+      return a.name.localeCompare(b.name, "pt-BR");
+    });
   } finally {
     client.release();
   }
