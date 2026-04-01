@@ -90,17 +90,42 @@ interface DatabaseErrorLike {
 }
 
 const STATUS_ALIASES: Record<string, ProductionStatus> = {
-  pendente: "pending",
-  corte: "cutting",
-  montagem: "assembly",
-  acabamento: "finishing",
-  controle: "quality_check",
-  aprovado: "approved",
-  entregue: "delivered",
-  concluido: "delivered",
-  concluida: "delivered",
-  completed: "delivered",
+  pending: "Pendente",
+  pendente: "Pendente",
+  cutting: "Corte",
+  corte: "Corte",
+  assembly: "Montagem",
+  montagem: "Montagem",
+  finishing: "Acabamento",
+  acabamento: "Acabamento",
+  quality_check: "Controle",
+  qualitycheck: "Controle",
+  quality: "Controle",
+  controle: "Controle",
+  approved: "Aprovado",
+  aprovado: "Aprovado",
+  delivered: "Entregue",
+  entregue: "Entregue",
+  concluido: "Entregue",
+  concluida: "Entregue",
+  completed: "Entregue",
 };
+
+function normalizeStageName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 120);
+}
+
+function toPortugueseStageName(stageName: string): string {
+  const normalized = normalizeStageName(stageName);
+  return STATUS_ALIASES[normalized] ?? stageName.trim();
+}
 
 function tokenHashPrefix(value: string): string {
   return value.slice(0, 12);
@@ -135,10 +160,10 @@ function normalizeProductionStatus(status: string): ProductionStatus {
   const normalizedStatus = status.trim();
 
   if (!normalizedStatus) {
-    return "pending";
+    return "Pendente";
   }
 
-  return STATUS_ALIASES[normalizedStatus.toLowerCase()] ?? normalizedStatus;
+  return STATUS_ALIASES[normalizeStageName(normalizedStatus)] ?? normalizedStatus;
 }
 
 function mapProductionImageRow(row: ProductionImageRow): ProductionImage {
@@ -176,7 +201,7 @@ function mapPublicProductionStatusRow(row: PublicProductionStatusRow): Productio
   return {
     id: row.id,
     stageId: row.stage_id,
-    stageName: row.stage_name,
+    stageName: toPortugueseStageName(row.stage_name),
     teamId: row.team_id,
     teamName: row.team_name,
     createdAt: toDateString(row.created_at) ?? new Date().toISOString(),

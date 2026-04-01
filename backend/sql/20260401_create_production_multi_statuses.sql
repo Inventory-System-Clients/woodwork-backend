@@ -95,13 +95,13 @@ INSERT INTO public.production_status_stages (id, name, normalized_name)
 SELECT md5(random()::text || clock_timestamp()::text), seeded.name, seeded.normalized_name
 FROM (
   VALUES
-    ('pending', 'pending'),
-    ('cutting', 'cutting'),
-    ('assembly', 'assembly'),
-    ('finishing', 'finishing'),
-    ('quality_check', 'quality_check'),
-    ('approved', 'approved'),
-    ('delivered', 'delivered')
+    ('Pendente', 'pendente'),
+    ('Corte', 'corte'),
+    ('Montagem', 'montagem'),
+    ('Acabamento', 'acabamento'),
+    ('Controle', 'controle'),
+    ('Aprovado', 'aprovado'),
+    ('Entregue', 'entregue')
 ) AS seeded(name, normalized_name)
 WHERE NOT EXISTS (
   SELECT 1
@@ -114,14 +114,14 @@ WITH resolved_source AS (
   SELECT
     po.id::text AS production_id,
     CASE
-      WHEN LOWER(BTRIM(po.production_status::text)) IN ('pending', 'pendente') THEN 'pending'
-      WHEN LOWER(BTRIM(po.production_status::text)) IN ('cutting', 'corte') THEN 'cutting'
-      WHEN LOWER(BTRIM(po.production_status::text)) IN ('assembly', 'montagem') THEN 'assembly'
-      WHEN LOWER(BTRIM(po.production_status::text)) IN ('finishing', 'acabamento') THEN 'finishing'
-      WHEN LOWER(BTRIM(po.production_status::text)) IN ('quality_check', 'quality check', 'controle') THEN 'quality_check'
-      WHEN LOWER(BTRIM(po.production_status::text)) IN ('approved', 'aprovado') THEN 'approved'
-      WHEN LOWER(BTRIM(po.production_status::text)) IN ('delivered', 'entregue', 'completed', 'concluido', 'concluida') THEN 'delivered'
-      WHEN po.production_status IS NULL OR BTRIM(po.production_status::text) = '' THEN 'pending'
+      WHEN LOWER(BTRIM(po.production_status::text)) IN ('pending', 'pendente') THEN 'pendente'
+      WHEN LOWER(BTRIM(po.production_status::text)) IN ('cutting', 'corte') THEN 'corte'
+      WHEN LOWER(BTRIM(po.production_status::text)) IN ('assembly', 'montagem') THEN 'montagem'
+      WHEN LOWER(BTRIM(po.production_status::text)) IN ('finishing', 'acabamento') THEN 'acabamento'
+      WHEN LOWER(BTRIM(po.production_status::text)) IN ('quality_check', 'quality check', 'controle') THEN 'controle'
+      WHEN LOWER(BTRIM(po.production_status::text)) IN ('approved', 'aprovado') THEN 'aprovado'
+      WHEN LOWER(BTRIM(po.production_status::text)) IN ('delivered', 'entregue', 'completed', 'concluido', 'concluida') THEN 'entregue'
+      WHEN po.production_status IS NULL OR BTRIM(po.production_status::text) = '' THEN 'pendente'
       ELSE LOWER(BTRIM(po.production_status::text))
     END AS normalized_stage,
     po.production_status::text AS original_stage,

@@ -78,27 +78,42 @@ let productionStatusStagesTableExists: boolean | null = null;
 let productionOrderStatusesTableExists: boolean | null = null;
 
 const STATUS_ALIASES: Record<string, string> = {
-  pendente: "pending",
-  corte: "cutting",
-  montagem: "assembly",
-  acabamento: "finishing",
-  controle: "quality_check",
-  aprovado: "approved",
-  entregue: "delivered",
-  concluido: "delivered",
-  concluida: "delivered",
-  completed: "delivered",
+  pending: "Pendente",
+  pendente: "Pendente",
+  cutting: "Corte",
+  corte: "Corte",
+  assembly: "Montagem",
+  montagem: "Montagem",
+  finishing: "Acabamento",
+  acabamento: "Acabamento",
+  quality_check: "Controle",
+  qualitycheck: "Controle",
+  quality_check_: "Controle",
+  quality: "Controle",
+  controle: "Controle",
+  approved: "Aprovado",
+  aprovado: "Aprovado",
+  delivered: "Entregue",
+  entregue: "Entregue",
+  concluido: "Entregue",
+  concluida: "Entregue",
+  completed: "Entregue",
 };
 
 const DEFAULT_STAGE_NAMES = [
-  "pending",
-  "cutting",
-  "assembly",
-  "finishing",
-  "quality_check",
-  "approved",
-  "delivered",
+  "Pendente",
+  "Corte",
+  "Montagem",
+  "Acabamento",
+  "Controle",
+  "Aprovado",
+  "Entregue",
 ] as const;
+
+function toPortugueseStageName(stageName: string): string {
+  const normalized = normalizeStageName(stageName);
+  return STATUS_ALIASES[normalized] ?? stageName.trim();
+}
 
 function normalizeStageName(value: string): string {
   return value
@@ -136,10 +151,10 @@ function normalizeProductionStatus(status: string): ProductionStatus {
   const normalizedStatus = status.trim();
 
   if (normalizedStatus.length === 0) {
-    return "pending";
+    return "Pendente";
   }
 
-  return STATUS_ALIASES[normalizedStatus.toLowerCase()] ?? normalizedStatus;
+  return STATUS_ALIASES[normalizeStageName(normalizedStatus)] ?? normalizedStatus;
 }
 
 function mapProductionRow(row: ProductionOrderRow): Production {
@@ -215,7 +230,7 @@ function mapStatusAssignmentRow(row: ProductionStatusAssignmentRow): ProductionS
   return {
     id: row.id,
     stageId: row.stage_id,
-    stageName: row.stage_name,
+    stageName: toPortugueseStageName(row.stage_name),
     teamId: row.team_id,
     teamName: row.team_name,
     createdAt: toDateString(row.created_at) ?? new Date().toISOString(),
@@ -804,7 +819,7 @@ async function syncLegacyProductionStatus(client: PoolClient, productionId: stri
     [productionId],
   );
 
-  const joinedStatuses = result.rows[0]?.joined_statuses?.trim() ?? "pending";
+  const joinedStatuses = result.rows[0]?.joined_statuses?.trim() ?? "Pendente";
 
   await client.query(
     `
@@ -892,7 +907,7 @@ async function listStatusOptions(): Promise<ProductionStageOption[]> {
 
     return result.rows.map((row) => ({
       id: row.id,
-      name: row.name,
+      name: toPortugueseStageName(row.name),
       normalizedName: row.normalized_name,
       usageCount: toNumber(row.usage_count ?? 0),
     }));
@@ -1174,7 +1189,7 @@ async function create(payload: CreateProductionRepositoryInput): Promise<Product
 
     if (hasStatusesSchema && payload.installationTeamId) {
       await createStatusAssignment(client, production.id, {
-        stageName: "pending",
+        stageName: "Pendente",
         teamId: payload.installationTeamId,
       });
     }
@@ -1270,7 +1285,12 @@ async function complete(id: string): Promise<Production | undefined> {
 
 function hasApprovalKeyword(statusName: string): boolean {
   const normalized = normalizeStageName(statusName);
-  return normalized === "approved" || normalized === "aprovado" || normalized === "delivered";
+  return (
+    normalized === "approved" ||
+    normalized === "aprovado" ||
+    normalized === "delivered" ||
+    normalized === "entregue"
+  );
 }
 
 async function advanceStatus(id: string, input: AdvanceProductionStatusInput): Promise<Production | undefined> {
