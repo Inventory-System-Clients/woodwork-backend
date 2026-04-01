@@ -36,6 +36,18 @@ productionRoutes.get(
   authorizeRoles("admin", "gerente"),
   productionController.listStatusOptions,
 );
+productionRoutes.get(
+  "/statuses/options",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  productionController.listStatusOptions,
+);
+productionRoutes.get(
+  "/stages/options",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  productionController.listStatusOptions,
+);
 productionRoutes.post(
   "/",
   requireAuth,
@@ -51,6 +63,20 @@ productionRoutes.patch(
   productionController.advanceStatus,
 );
 productionRoutes.put(
+  "/:id/statuses",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  validateBody(setProductionStatusesSchema),
+  productionController.setStatuses,
+);
+productionRoutes.patch(
+  "/:id/statuses",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  validateBody(setProductionStatusesSchema),
+  productionController.setStatuses,
+);
+productionRoutes.post(
   "/:id/statuses",
   requireAuth,
   authorizeRoles("admin", "gerente"),

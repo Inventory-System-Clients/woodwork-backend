@@ -131,7 +131,7 @@ WITH resolved_source AS (
 seed_custom_stages AS (
   INSERT INTO public.production_status_stages (id, name, normalized_name)
   SELECT
-    md5(random()::text || clock_timestamp()::text || rs.production_id),
+    md5(random()::text || clock_timestamp()::text || rs.normalized_stage),
     CASE
       WHEN rs.original_stage IS NULL OR BTRIM(rs.original_stage) = '' THEN rs.normalized_stage
       ELSE BTRIM(rs.original_stage)
@@ -143,7 +143,7 @@ seed_custom_stages AS (
     FROM public.production_status_stages pss
     WHERE pss.normalized_name = rs.normalized_stage
   )
-  GROUP BY rs.normalized_stage, rs.original_stage, rs.production_id
+  GROUP BY rs.normalized_stage, rs.original_stage
 )
 INSERT INTO public.production_order_statuses (id, production_id, stage_id, team_id)
 SELECT

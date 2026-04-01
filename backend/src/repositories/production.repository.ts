@@ -90,6 +90,16 @@ const STATUS_ALIASES: Record<string, string> = {
   completed: "delivered",
 };
 
+const DEFAULT_STAGE_NAMES = [
+  "pending",
+  "cutting",
+  "assembly",
+  "finishing",
+  "quality_check",
+  "approved",
+  "delivered",
+] as const;
+
 function normalizeStageName(value: string): string {
   return value
     .trim()
@@ -835,6 +845,24 @@ async function createStatusAssignment(
   await syncLegacyProductionStatus(client, productionId);
 }
 
+async function ensureDefaultStatusStages(client: PoolClient): Promise<void> {
+  for (const stageName of DEFAULT_STAGE_NAMES) {
+    const normalizedName = normalizeStageName(stageName);
+
+    await client.query(
+      `
+        INSERT INTO public.production_status_stages (id, name, normalized_name)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (normalized_name)
+        DO UPDATE SET
+          name = EXCLUDED.name,
+          updated_at = NOW();
+      `,
+      [randomUUID(), stageName, normalizedName],
+    );
+  }
+}
+
 async function listStatusOptions(): Promise<ProductionStageOption[]> {
   const client = await pool.connect();
 
@@ -844,6 +872,8 @@ async function listStatusOptions(): Promise<ProductionStageOption[]> {
     if (!hasSchema) {
       return [];
     }
+
+    await ensureDefaultStatusStages(client);
 
     const result = await client.query<ProductionStatusStageRow>(
       `
