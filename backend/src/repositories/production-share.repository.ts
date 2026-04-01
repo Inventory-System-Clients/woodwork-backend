@@ -9,7 +9,7 @@ import {
   PublicProductionMaterial,
   PublicProductionView,
 } from "../models/production-share.model";
-import { ProductionStatus, productionStatusFlow } from "../models/production.model";
+import { ProductionStatus, ProductionStatusAssignment } from "../models/production.model";
 import { AppError } from "../utils/app-error";
 
 interface ProductionExistsRow {
@@ -35,6 +35,16 @@ interface PublicProductionRow {
   product_name: string | null;
   quantity: string | number | null;
   unit: string | null;
+}
+
+interface PublicProductionStatusRow {
+  id: string;
+  production_id: string;
+  stage_id: string;
+  stage_name: string;
+  team_id: string | null;
+  team_name: string | null;
+  created_at: string | Date;
 }
 
 interface ProductionImageRow {
@@ -65,6 +75,7 @@ interface CreateProductionImagesInput {
 
 let productionOrderMaterialsProductIdColumnExists: boolean | null = null;
 let productionImagesTableExists: boolean | null = null;
+let productionStatusesTableExists: boolean | null = null;
 
 interface DatabaseErrorLike {
   code?: string;
@@ -121,13 +132,13 @@ function toDateString(value: string | Date | null): string | null {
 }
 
 function normalizeProductionStatus(status: string): ProductionStatus {
-  const normalizedStatus = status.trim().toLowerCase();
+  const normalizedStatus = status.trim();
 
-  if (productionStatusFlow.includes(normalizedStatus as ProductionStatus)) {
-    return normalizedStatus as ProductionStatus;
+  if (!normalizedStatus) {
+    return "pending";
   }
 
-  return STATUS_ALIASES[normalizedStatus] ?? "pending";
+  return STATUS_ALIASES[normalizedStatus.toLowerCase()] ?? normalizedStatus;
 }
 
 function mapProductionImageRow(row: ProductionImageRow): ProductionImage {
@@ -158,6 +169,17 @@ function mapPublicProductionImageFileRow(row: ProductionImageFileRow): PublicPro
     mimeType: row.mime_type,
     fileSize: toNumber(row.file_size),
     data: row.image_data,
+  };
+}
+
+function mapPublicProductionStatusRow(row: PublicProductionStatusRow): ProductionStatusAssignment {
+  return {
+    id: row.id,
+    stageId: row.stage_id,
+    stageName: row.stage_name,
+    teamId: row.team_id,
+    teamName: row.team_name,
+    createdAt: toDateString(row.created_at) ?? new Date().toISOString(),
   };
 }
 
@@ -257,6 +279,26 @@ async function hasProductionImagesTable(): Promise<boolean> {
 
   productionImagesTableExists = Boolean(result.rows[0]?.exists);
   return productionImagesTableExists;
+}
+
+async function hasProductionStatusesTable(): Promise<boolean> {
+  if (productionStatusesTableExists !== null) {
+    return productionStatusesTableExists;
+  }
+
+  const result = await pool.query<{ exists: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'production_order_statuses'
+      ) AS exists;
+    `,
+  );
+
+  productionStatusesTableExists = Boolean(result.rows[0]?.exists);
+  return productionStatusesTableExists;
 }
 
 async function ensureProductionImagesSchema(client: PoolClient): Promise<void> {
@@ -437,6 +479,7 @@ function mapProductionRows(rows: PublicProductionRow[]): PublicProductionView | 
     clientName: firstRow.client_name,
     description: firstRow.description,
     productionStatus: normalizeProductionStatus(firstRow.production_status),
+    statuses: [],
     deliveryDate: toDateString(firstRow.delivery_date),
     installationTeam: firstRow.installation_team,
     materials: [],
@@ -487,6 +530,46 @@ async function findPublicImagesByProductionId(productionId: string): Promise<Pub
         productionId,
       });
       productionImagesTableExists = false;
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+async function findPublicStatusesByProductionId(productionId: string): Promise<ProductionStatusAssignment[]> {
+  const hasStatuses = await hasProductionStatusesTable();
+
+  if (!hasStatuses) {
+    return [];
+  }
+
+  try {
+    const result = await pool.query<PublicProductionStatusRow>(
+      `
+        SELECT
+          pos.id,
+          pos.production_id,
+          pos.stage_id,
+          pss.name AS stage_name,
+          pos.team_id,
+          t.name AS team_name,
+          pos.created_at
+        FROM public.production_order_statuses pos
+        INNER JOIN public.production_status_stages pss
+          ON pss.id = pos.stage_id
+        LEFT JOIN public.teams t
+          ON t.id = pos.team_id
+        WHERE pos.production_id = $1
+        ORDER BY pos.created_at ASC;
+      `,
+      [productionId],
+    );
+
+    return result.rows.map(mapPublicProductionStatusRow);
+  } catch (error) {
+    if (isSchemaError(error)) {
+      productionStatusesTableExists = false;
       return [];
     }
 
@@ -553,6 +636,12 @@ async function findPublicProductionByTokenHash(tokenHash: string): Promise<Publi
     const mappedProduction = mapProductionRows(result.rows);
 
     if (mappedProduction) {
+      mappedProduction.statuses = await findPublicStatusesByProductionId(mappedProduction.id);
+      if (mappedProduction.statuses.length > 0) {
+        mappedProduction.productionStatus = mappedProduction.statuses
+          .map((status) => status.stageName)
+          .join(", ");
+      }
       mappedProduction.images = await findPublicImagesByProductionId(mappedProduction.id);
     }
 

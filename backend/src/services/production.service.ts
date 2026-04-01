@@ -1,4 +1,10 @@
-import { CreateProductionInput, Production } from "../models/production.model";
+import {
+  AdvanceProductionStatusInput,
+  CreateProductionInput,
+  Production,
+  ProductionStageOption,
+  SetProductionStatusesInput,
+} from "../models/production.model";
 import { employeeRepository } from "../repositories/employee.repository";
 import { productionRepository } from "../repositories/production.repository";
 import { teamRepository } from "../repositories/team.repository";
@@ -29,6 +35,10 @@ async function createProduction(payload: CreateProductionInput): Promise<Product
   });
 }
 
+async function listProductionStatusOptions(): Promise<ProductionStageOption[]> {
+  return productionRepository.listStatusOptions();
+}
+
 async function completeProduction(id: string): Promise<Production> {
   const production = await productionRepository.complete(id);
 
@@ -39,8 +49,18 @@ async function completeProduction(id: string): Promise<Production> {
   return production;
 }
 
-async function advanceProductionStatus(id: string): Promise<Production> {
-  const production = await productionRepository.advanceStatus(id);
+async function setProductionStatuses(id: string, payload: SetProductionStatusesInput): Promise<Production> {
+  const production = await productionRepository.setStatuses(id, payload);
+
+  if (!production) {
+    throw new AppError("Production not found", 404, { productionId: id });
+  }
+
+  return production;
+}
+
+async function advanceProductionStatus(id: string, payload: AdvanceProductionStatusInput): Promise<Production> {
+  const production = await productionRepository.advanceStatus(id, payload);
 
   if (!production) {
     throw new AppError("Production not found", 404, { productionId: id });
@@ -51,7 +71,9 @@ async function advanceProductionStatus(id: string): Promise<Production> {
 
 export const productionService = {
   listProductions,
+  listProductionStatusOptions,
   createProduction,
   completeProduction,
+  setProductionStatuses,
   advanceProductionStatus,
 };

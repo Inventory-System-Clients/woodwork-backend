@@ -7,27 +7,25 @@ const deliveryDateSchema = z
     message: "deliveryDate must be a valid date",
   });
 
-export const productionStatusSchema = z.enum([
-  "pending",
-  "cutting",
-  "assembly",
-  "finishing",
-  "quality_check",
-  "approved",
-  "delivered",
-]);
+export const productionStatusSchema = z.string().trim().min(1, "productionStatus is required");
 
 export type ProductionStatus = z.infer<typeof productionStatusSchema>;
 
-export const productionStatusFlow: ProductionStatus[] = [
-  "pending",
-  "cutting",
-  "assembly",
-  "finishing",
-  "quality_check",
-  "approved",
-  "delivered",
-];
+export interface ProductionStageOption {
+  id: string;
+  name: string;
+  normalizedName: string;
+  usageCount: number;
+}
+
+export interface ProductionStatusAssignment {
+  id: string;
+  stageId: string;
+  stageName: string;
+  teamId: string | null;
+  teamName: string | null;
+  createdAt: string;
+}
 
 export const productionMaterialSchema = z.object({
   productId: z.string().trim().min(1).optional(),
@@ -46,6 +44,22 @@ export const createProductionSchema = z.object({
   materials: z.array(productionMaterialSchema).min(1, "At least one material is required"),
 });
 
+export const productionStatusInputSchema = z
+  .object({
+    stageId: z.string().trim().min(1).optional(),
+    stageName: z.string().trim().min(1).max(120).optional(),
+    teamId: z.string().trim().min(1, "teamId is required"),
+  })
+  .refine((payload) => Boolean(payload.stageId || payload.stageName), {
+    message: "stageId or stageName is required",
+  });
+
+export const setProductionStatusesSchema = z.object({
+  statuses: z.array(productionStatusInputSchema).min(1, "At least one status is required"),
+});
+
+export const advanceProductionStatusSchema = productionStatusInputSchema;
+
 export interface ProductionMaterial {
   productId?: string;
   productName: string;
@@ -59,6 +73,7 @@ export interface Production {
   clientName: string;
   description: string;
   productionStatus: ProductionStatus;
+  statuses: ProductionStatusAssignment[];
   deliveryDate: string | null;
   installationTeamId: string | null;
   installationTeam: string | null;
@@ -67,3 +82,5 @@ export interface Production {
 }
 
 export type CreateProductionInput = z.infer<typeof createProductionSchema>;
+export type AdvanceProductionStatusInput = z.infer<typeof advanceProductionStatusSchema>;
+export type SetProductionStatusesInput = z.infer<typeof setProductionStatusesSchema>;

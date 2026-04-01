@@ -10,6 +10,11 @@ const list = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json({ data: productions });
 });
 
+const listStatusOptions = asyncHandler(async (_req: Request, res: Response) => {
+  const options = await productionService.listProductionStatusOptions();
+  res.status(200).json({ data: options });
+});
+
 const create = asyncHandler(async (req: Request, res: Response) => {
   const production = await productionService.createProduction(req.body);
   res.status(201).json({ data: production });
@@ -21,13 +26,20 @@ const complete = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const advanceStatus = asyncHandler(async (req: Request, res: Response) => {
-  const production = await productionService.advanceProductionStatus(req.params.id);
+  const production = await productionService.advanceProductionStatus(req.params.id, req.body);
+  res.status(200).json({ data: production });
+});
+
+const setStatuses = asyncHandler(async (req: Request, res: Response) => {
+  const production = await productionService.setProductionStatuses(req.params.id, req.body);
   res.status(200).json({ data: production });
 });
 
 export const productionController = {
   list,
+  listStatusOptions,
   create,
   complete,
+  setStatuses,
   advanceStatus,
 };

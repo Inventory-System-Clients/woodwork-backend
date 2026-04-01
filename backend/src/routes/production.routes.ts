@@ -5,7 +5,11 @@ import { productionShareController } from "../controllers/production-share.contr
 import { requireAuth } from "../middlewares/auth.middleware";
 import { authorizeRoles } from "../middlewares/authorize.middleware";
 import { validateBody } from "../middlewares/validate.middleware";
-import { createProductionSchema } from "../models/production.model";
+import {
+  advanceProductionStatusSchema,
+  createProductionSchema,
+  setProductionStatusesSchema,
+} from "../models/production.model";
 import { AppError } from "../utils/app-error";
 
 const productionRoutes = Router();
@@ -26,6 +30,12 @@ const productionImagesUpload = multer({
 });
 
 productionRoutes.get("/", requireAuth, productionController.list);
+productionRoutes.get(
+  "/status-options",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  productionController.listStatusOptions,
+);
 productionRoutes.post(
   "/",
   requireAuth,
@@ -37,7 +47,15 @@ productionRoutes.patch(
   "/:id/advance-status",
   requireAuth,
   authorizeRoles("admin", "gerente"),
+  validateBody(advanceProductionStatusSchema),
   productionController.advanceStatus,
+);
+productionRoutes.put(
+  "/:id/statuses",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  validateBody(setProductionStatusesSchema),
+  productionController.setStatuses,
 );
 productionRoutes.patch(
   "/:id/complete",

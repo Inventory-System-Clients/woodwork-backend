@@ -1,4 +1,4 @@
-import { ProductionStatus } from "./production.model";
+import { ProductionStatus, ProductionStatusAssignment } from "./production.model";
 
 export interface ProductionShareLinkResult {
   token: string;
@@ -51,6 +51,7 @@ export interface PublicProductionView {
   clientName: string;
   description: string;
   productionStatus: ProductionStatus;
+  statuses: ProductionStatusAssignment[];
   deliveryDate: string | null;
   installationTeam: string | null;
   materials: PublicProductionMaterial[];
