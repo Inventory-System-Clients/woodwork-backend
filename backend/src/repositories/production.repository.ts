@@ -19,6 +19,7 @@ type CreateProductionRepositoryInput = CreateProductionInput & {
 
 interface ProductionOrderRow {
   id: string;
+  budget_id?: string | null;
   client_name: string;
   description: string;
   production_status: string;
@@ -76,6 +77,7 @@ let productStockMovementsTableExists: boolean | null = null;
 let productNameColumnExists: boolean | null = null;
 let productionStatusStagesTableExists: boolean | null = null;
 let productionOrderStatusesTableExists: boolean | null = null;
+let budgetIdColumnExists: boolean | null = null;
 
 const STATUS_ALIASES: Record<string, string> = {
   pending: "Pendente",
@@ -203,6 +205,7 @@ function normalizeProductionStatus(status: string): ProductionStatus {
 function mapProductionRow(row: ProductionOrderRow): Production {
   return {
     id: row.id,
+    budgetId: row.budget_id ?? null,
     clientName: row.client_name,
     description: row.description,
     productionStatus: normalizeProductionStatus(row.production_status),
@@ -452,6 +455,27 @@ async function hasInstallationTeamIdColumn(client: PoolClient): Promise<boolean>
 
   installationTeamIdColumnExists = Boolean(result.rows[0]?.exists);
   return installationTeamIdColumnExists;
+}
+
+async function hasBudgetIdColumn(client: PoolClient): Promise<boolean> {
+  if (budgetIdColumnExists !== null) {
+    return budgetIdColumnExists;
+  }
+
+  const result = await client.query<{ exists: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'production_orders'
+          AND column_name = 'budget_id'
+      ) AS exists;
+    `,
+  );
+
+  budgetIdColumnExists = Boolean(result.rows[0]?.exists);
+  return budgetIdColumnExists;
 }
 
 async function hasTeamMembersTable(client: PoolClient): Promise<boolean> {
@@ -988,16 +1012,19 @@ async function listById(id: string): Promise<Production | undefined> {
     const canUseProductId = await hasProductIdColumn(client);
     const canUseUnitPrice = await hasUnitPriceColumn(client);
     const canUseInstallationTeamId = await hasInstallationTeamIdColumn(client);
+    const canUseBudgetId = await hasBudgetIdColumn(client);
     const productIdSelect = canUseProductId ? "pom.product_id" : "NULL::text AS product_id";
     const unitPriceSelect = canUseUnitPrice ? "pom.unit_price" : "0::numeric AS unit_price";
     const installationTeamIdSelect = canUseInstallationTeamId
       ? "po.installation_team_id"
       : "NULL::text AS installation_team_id";
+    const budgetIdSelect = canUseBudgetId ? "po.budget_id" : "NULL::text AS budget_id";
 
     const result = await client.query<ProductionWithMaterialRow>(
       `
         SELECT
           po.id::text AS id,
+          ${budgetIdSelect},
           po.client_name,
           po.description,
           po.production_status,
@@ -1031,7 +1058,8 @@ async function listById(id: string): Promise<Production | undefined> {
   }
 }
 
-async function findAll(employeeId?: string): Promise<Production[]> {
+async function findAll(filters: { employeeId?: string; activeOnly?: boolean } = {}): Promise<Production[]> {
+  const { employeeId, activeOnly = false } = filters;
   const client = await pool.connect();
 
   try {
@@ -1039,26 +1067,92 @@ async function findAll(employeeId?: string): Promise<Production[]> {
     const canUseUnitPrice = await hasUnitPriceColumn(client);
     const canUseInstallationTeamId = await hasInstallationTeamIdColumn(client);
     const canUseTeamMembersTable = await hasTeamMembersTable(client);
+    const canUseBudgetId = await hasBudgetIdColumn(client);
     const productIdSelect = canUseProductId ? "pom.product_id" : "NULL::text AS product_id";
     const unitPriceSelect = canUseUnitPrice ? "pom.unit_price" : "0::numeric AS unit_price";
     const installationTeamIdSelect = canUseInstallationTeamId
       ? "po.installation_team_id"
       : "NULL::text AS installation_team_id";
+    const budgetIdSelect = canUseBudgetId ? "po.budget_id" : "NULL::text AS budget_id";
 
     if (employeeId && (!canUseInstallationTeamId || !canUseTeamMembersTable)) {
       return [];
     }
 
     const filterByEmployee = Boolean(employeeId);
-    const employeeJoin = filterByEmployee
-      ? "INNER JOIN public.team_members tm ON tm.team_id = po.installation_team_id"
-      : "";
-    const employeeWhere = filterByEmployee ? "WHERE tm.employee_id = $1" : "";
+    const joins: string[] = [];
+    const whereClauses: string[] = [];
+
+    if (filterByEmployee) {
+      joins.push("INNER JOIN public.team_members tm ON tm.team_id = po.installation_team_id");
+      whereClauses.push("tm.employee_id = $1");
+    }
+
+    if (activeOnly) {
+      whereClauses.push(`
+        LOWER(
+          TRANSLATE(
+            COALESCE(po.production_status, ''),
+            'ÁÀÂÃÄáàâãäÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇç',
+            'AAAAAaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuCc'
+          )
+        ) NOT LIKE '%approved%'
+      `);
+      whereClauses.push(`
+        LOWER(
+          TRANSLATE(
+            COALESCE(po.production_status, ''),
+            'ÁÀÂÃÄáàâãäÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇç',
+            'AAAAAaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuCc'
+          )
+        ) NOT LIKE '%aprovad%'
+      `);
+      whereClauses.push(`
+        LOWER(
+          TRANSLATE(
+            COALESCE(po.production_status, ''),
+            'ÁÀÂÃÄáàâãäÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇç',
+            'AAAAAaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuCc'
+          )
+        ) NOT LIKE '%delivered%'
+      `);
+      whereClauses.push(`
+        LOWER(
+          TRANSLATE(
+            COALESCE(po.production_status, ''),
+            'ÁÀÂÃÄáàâãäÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇç',
+            'AAAAAaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuCc'
+          )
+        ) NOT LIKE '%entreg%'
+      `);
+      whereClauses.push(`
+        LOWER(
+          TRANSLATE(
+            COALESCE(po.production_status, ''),
+            'ÁÀÂÃÄáàâãäÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇç',
+            'AAAAAaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuCc'
+          )
+        ) NOT LIKE '%completed%'
+      `);
+      whereClauses.push(`
+        LOWER(
+          TRANSLATE(
+            COALESCE(po.production_status, ''),
+            'ÁÀÂÃÄáàâãäÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇç',
+            'AAAAAaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuCc'
+          )
+        ) NOT LIKE '%concluid%'
+      `);
+    }
+
+    const joinsSql = joins.length > 0 ? joins.join(" ") : "";
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
     const result = await client.query<ProductionWithMaterialRow>(
       `
         SELECT
           po.id::text AS id,
+          ${budgetIdSelect},
           po.client_name,
           po.description,
           po.production_status,
@@ -1072,10 +1166,10 @@ async function findAll(employeeId?: string): Promise<Production[]> {
           pom.unit,
           ${unitPriceSelect}
         FROM public.production_orders po
-        ${employeeJoin}
+        ${joinsSql}
         LEFT JOIN public.production_order_materials pom
           ON pom.production_order_id = po.id
-        ${employeeWhere}
+        ${whereSql}
         ORDER BY po.created_at DESC, pom.id ASC;
       `,
       employeeId ? [employeeId] : undefined,

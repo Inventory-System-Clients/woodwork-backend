@@ -12,4 +12,11 @@ logisticsRoutes.get(
   logisticsController.summary,
 );
 
+logisticsRoutes.get(
+  "/active-productions/material-consumption",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  logisticsController.activeProductionsMaterialConsumption,
+);
+
 export { logisticsRoutes };

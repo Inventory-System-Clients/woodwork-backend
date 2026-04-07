@@ -10,7 +10,7 @@ import { productionRepository } from "../repositories/production.repository";
 import { teamRepository } from "../repositories/team.repository";
 import { AppError } from "../utils/app-error";
 
-async function listProductions(employeeId?: string): Promise<Production[]> {
+async function listProductions(employeeId?: string, activeOnly = false): Promise<Production[]> {
   if (employeeId) {
     const employee = await employeeRepository.findById(employeeId);
 
@@ -19,7 +19,10 @@ async function listProductions(employeeId?: string): Promise<Production[]> {
     }
   }
 
-  return productionRepository.findAll(employeeId);
+  return productionRepository.findAll({
+    employeeId,
+    activeOnly,
+  });
 }
 
 async function createProduction(payload: CreateProductionInput): Promise<Production> {

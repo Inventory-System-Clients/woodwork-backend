@@ -33,6 +33,33 @@ interface CountRow {
   total: string | number;
 }
 
+const PRODUCTION_REFERENCE_TYPES = ["production", "production_order"] as const;
+
+function normalizedProductionStatusSql(columnName: string): string {
+  return `
+    LOWER(
+      TRANSLATE(
+        COALESCE(${columnName}, ''),
+        'ÁÀÂÃÄáàâãäÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇç',
+        'AAAAAaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuCc'
+      )
+    )
+  `;
+}
+
+function activeProductionPredicateSql(columnName: string): string {
+  const normalizedStatus = normalizedProductionStatusSql(columnName);
+
+  return `
+    ${normalizedStatus} NOT LIKE '%approved%'
+    AND ${normalizedStatus} NOT LIKE '%aprovad%'
+    AND ${normalizedStatus} NOT LIKE '%delivered%'
+    AND ${normalizedStatus} NOT LIKE '%entreg%'
+    AND ${normalizedStatus} NOT LIKE '%completed%'
+    AND ${normalizedStatus} NOT LIKE '%concluid%'
+  `;
+}
+
 function toNumber(value: string | number | null): number {
   if (value === null) {
     return 0;
@@ -48,6 +75,11 @@ function toDateString(value: string | Date): string {
 
 function mapStockMovementRow(row: StockMovementRow, fallbackProductName?: string): StockMovement {
   const rawName = row.product_name ?? fallbackProductName ?? row.product_id;
+  const normalizedReferenceType = row.reference_type
+    ? PRODUCTION_REFERENCE_TYPES.includes(row.reference_type as (typeof PRODUCTION_REFERENCE_TYPES)[number])
+      ? "production"
+      : row.reference_type
+    : null;
 
   return {
     id: row.id,
@@ -57,7 +89,7 @@ function mapStockMovementRow(row: StockMovementRow, fallbackProductName?: string
     quantity: toNumber(row.quantity),
     unit: row.unit,
     reason: row.reason,
-    referenceType: row.reference_type,
+    referenceType: normalizedReferenceType,
     referenceId: row.reference_id,
     currentStock: row.current_stock === null ? null : toNumber(row.current_stock),
     createdAt: toDateString(row.created_at),
@@ -100,17 +132,69 @@ async function getProductForUpdate(client: PoolClient, productId: string): Promi
 
 async function listMovements(query: ListStockMovementsQueryInput): Promise<StockMovementList> {
   try {
-    const params = [query.productId ?? null, query.movementType ?? null];
+    const whereClauses: string[] = [];
+    const params: Array<string | number> = [];
+
+    if (query.productId) {
+      params.push(query.productId);
+      whereClauses.push(`psm.product_id = $${params.length}`);
+    }
+
+    if (query.movementType) {
+      params.push(query.movementType);
+      whereClauses.push(`psm.movement_type = $${params.length}`);
+    }
+
+    if (query.referenceType) {
+      const normalizedReferenceType = query.referenceType.trim().toLowerCase();
+
+      if (PRODUCTION_REFERENCE_TYPES.includes(normalizedReferenceType as (typeof PRODUCTION_REFERENCE_TYPES)[number])) {
+        whereClauses.push(
+          `(psm.reference_type = '${PRODUCTION_REFERENCE_TYPES[0]}' OR psm.reference_type = '${PRODUCTION_REFERENCE_TYPES[1]}')`,
+        );
+      } else {
+        params.push(normalizedReferenceType);
+        whereClauses.push(`LOWER(psm.reference_type) = $${params.length}`);
+      }
+    }
+
+    if (query.startDate) {
+      params.push(query.startDate);
+      whereClauses.push(`psm.created_at >= $${params.length}::date`);
+    }
+
+    if (query.endDate) {
+      params.push(query.endDate);
+      whereClauses.push(`psm.created_at < ($${params.length}::date + INTERVAL '1 day')`);
+    }
+
+    if (query.activeOnly) {
+      whereClauses.push(`
+        psm.reference_id IS NOT NULL
+        AND (psm.reference_type = '${PRODUCTION_REFERENCE_TYPES[0]}' OR psm.reference_type = '${PRODUCTION_REFERENCE_TYPES[1]}')
+        AND EXISTS (
+          SELECT 1
+          FROM public.production_orders po
+          WHERE po.id::text = psm.reference_id
+            AND ${activeProductionPredicateSql("po.production_status")}
+        )
+      `);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
     const countResult = await pool.query<CountRow>(
       `
         SELECT COUNT(*) AS total
         FROM public.product_stock_movements psm
-        WHERE ($1::text IS NULL OR psm.product_id = $1)
-          AND ($2::text IS NULL OR psm.movement_type = $2);
+        ${whereSql};
       `,
       params,
     );
+
+    const paginationParams = [...params, query.limit, query.offset];
+    const limitIndex = paginationParams.length - 1;
+    const offsetIndex = paginationParams.length;
 
     const rowsResult = await pool.query<StockMovementRow>(
       `
@@ -129,13 +213,12 @@ async function listMovements(query: ListStockMovementsQueryInput): Promise<Stock
         FROM public.product_stock_movements psm
         LEFT JOIN public.products p
           ON p.id::text = psm.product_id
-        WHERE ($1::text IS NULL OR psm.product_id = $1)
-          AND ($2::text IS NULL OR psm.movement_type = $2)
+        ${whereSql}
         ORDER BY psm.created_at DESC, psm.id DESC
-        LIMIT $3
-        OFFSET $4;
+        LIMIT $${limitIndex}
+        OFFSET $${offsetIndex};
       `,
-      [...params, query.limit, query.offset],
+      paginationParams,
     );
 
     return {

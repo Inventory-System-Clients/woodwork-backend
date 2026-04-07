@@ -18,13 +18,32 @@ WHERE email IS NOT NULL;
 CREATE TABLE IF NOT EXISTS public.teams (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'interna',
   description TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.table_constraints
+    WHERE constraint_schema = 'public'
+      AND table_name = 'teams'
+      AND constraint_name = 'chk_teams_category'
+  ) THEN
+    ALTER TABLE public.teams
+      ADD CONSTRAINT chk_teams_category
+      CHECK (category IN ('interna', 'terceirizada'));
+  END IF;
+END $$;
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_name_unique
 ON public.teams (LOWER(name));
+
+CREATE INDEX IF NOT EXISTS idx_teams_category
+ON public.teams (category);
 
 CREATE TABLE IF NOT EXISTS public.team_members (
   team_id TEXT NOT NULL,

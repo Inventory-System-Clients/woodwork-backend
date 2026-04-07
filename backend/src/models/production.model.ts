@@ -9,6 +9,34 @@ const deliveryDateSchema = z
 
 export const productionStatusSchema = z.string().trim().min(1, "productionStatus is required");
 
+const queryBooleanSchema = z.preprocess((value) => {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalizedValue = value.trim().toLowerCase();
+
+    if (normalizedValue === "true") {
+      return true;
+    }
+
+    if (normalizedValue === "false") {
+      return false;
+    }
+  }
+
+  return value;
+}, z.boolean().optional());
+
+export const listProductionsQuerySchema = z.object({
+  active: queryBooleanSchema,
+});
+
 export type ProductionStatus = z.infer<typeof productionStatusSchema>;
 
 export interface ProductionStageOption {
@@ -70,6 +98,7 @@ export interface ProductionMaterial {
 
 export interface Production {
   id: string;
+  budgetId?: string | null;
   clientName: string;
   description: string;
   productionStatus: ProductionStatus;
@@ -84,3 +113,4 @@ export interface Production {
 export type CreateProductionInput = z.infer<typeof createProductionSchema>;
 export type AdvanceProductionStatusInput = z.infer<typeof advanceProductionStatusSchema>;
 export type SetProductionStatusesInput = z.infer<typeof setProductionStatusesSchema>;
+export type ListProductionsQueryInput = z.infer<typeof listProductionsQuerySchema>;

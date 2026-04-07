@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { pool } from "../database/postgres";
-import { Team, TeamMember } from "../models/team.model";
+import { Team, TeamCategory, TeamMember } from "../models/team.model";
 
 interface TeamWithMemberRow {
   team_id: string;
   team_name: string;
+  team_category: TeamCategory;
   team_description: string | null;
   team_created_at: string | Date;
   team_updated_at: string | Date;
@@ -19,6 +20,7 @@ interface TeamWithMemberRow {
 interface TeamRow {
   id: string;
   name: string;
+  category: TeamCategory;
   description: string | null;
   created_at: string | Date;
   updated_at: string | Date;
@@ -26,12 +28,37 @@ interface TeamRow {
 
 export interface CreateTeamRecordInput {
   name: string;
+  category: TeamCategory;
   description: string | null;
 }
 
 export interface SaveTeamInput {
   name: string;
+  category: TeamCategory;
   description: string | null;
+}
+
+let teamCategoryColumnExists: boolean | null = null;
+
+async function hasTeamCategoryColumn(): Promise<boolean> {
+  if (teamCategoryColumnExists !== null) {
+    return teamCategoryColumnExists;
+  }
+
+  const result = await pool.query<{ exists: boolean }>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'teams'
+          AND column_name = 'category'
+      ) AS exists;
+    `,
+  );
+
+  teamCategoryColumnExists = Boolean(result.rows[0]?.exists);
+  return teamCategoryColumnExists;
 }
 
 function toDateString(value: string | Date): string {
@@ -42,6 +69,7 @@ function mapTeamRow(row: TeamRow): Team {
   return {
     id: row.id,
     name: row.name,
+    category: row.category,
     description: row.description,
     createdAt: toDateString(row.created_at),
     updatedAt: toDateString(row.updated_at),
@@ -74,6 +102,7 @@ function groupTeamRows(rows: TeamWithMemberRow[]): Team[] {
       teamsById.set(row.team_id, {
         id: row.team_id,
         name: row.team_name,
+        category: row.team_category,
         description: row.team_description,
         createdAt: toDateString(row.team_created_at),
         updatedAt: toDateString(row.team_updated_at),
@@ -92,11 +121,15 @@ function groupTeamRows(rows: TeamWithMemberRow[]): Team[] {
 }
 
 async function findAll(): Promise<Team[]> {
+  const canUseCategory = await hasTeamCategoryColumn();
+  const categorySelect = canUseCategory ? "t.category" : "'interna'::text";
+
   const result = await pool.query<TeamWithMemberRow>(
     `
       SELECT
         t.id AS team_id,
         t.name AS team_name,
+        ${categorySelect} AS team_category,
         t.description AS team_description,
         t.created_at AS team_created_at,
         t.updated_at AS team_updated_at,
@@ -119,11 +152,15 @@ async function findAll(): Promise<Team[]> {
 }
 
 async function findById(id: string): Promise<Team | undefined> {
+  const canUseCategory = await hasTeamCategoryColumn();
+  const categorySelect = canUseCategory ? "t.category" : "'interna'::text";
+
   const result = await pool.query<TeamWithMemberRow>(
     `
       SELECT
         t.id AS team_id,
         t.name AS team_name,
+        ${categorySelect} AS team_category,
         t.description AS team_description,
         t.created_at AS team_created_at,
         t.updated_at AS team_updated_at,
@@ -152,11 +189,15 @@ async function findById(id: string): Promise<Team | undefined> {
 }
 
 async function findByName(name: string): Promise<Team | undefined> {
+  const canUseCategory = await hasTeamCategoryColumn();
+  const categorySelect = canUseCategory ? "category" : "'interna'::text AS category";
+
   const result = await pool.query<TeamRow>(
     `
       SELECT
         id,
         name,
+        ${categorySelect},
         description,
         created_at,
         updated_at
@@ -171,45 +212,91 @@ async function findByName(name: string): Promise<Team | undefined> {
 }
 
 async function create(payload: CreateTeamRecordInput): Promise<Team> {
-  const result = await pool.query<TeamRow>(
-    `
-      INSERT INTO public.teams (
-        id,
-        name,
-        description
+  const canUseCategory = await hasTeamCategoryColumn();
+
+  const result = canUseCategory
+    ? await pool.query<TeamRow>(
+        `
+          INSERT INTO public.teams (
+            id,
+            name,
+            category,
+            description
+          )
+          VALUES ($1, $2, $3, $4)
+          RETURNING
+            id,
+            name,
+            category,
+            description,
+            created_at,
+            updated_at;
+        `,
+        [randomUUID(), payload.name, payload.category, payload.description],
       )
-      VALUES ($1, $2, $3)
-      RETURNING
-        id,
-        name,
-        description,
-        created_at,
-        updated_at;
-    `,
-    [randomUUID(), payload.name, payload.description],
-  );
+    : await pool.query<TeamRow>(
+        `
+          INSERT INTO public.teams (
+            id,
+            name,
+            description
+          )
+          VALUES ($1, $2, $3)
+          RETURNING
+            id,
+            name,
+            'interna'::text AS category,
+            description,
+            created_at,
+            updated_at;
+        `,
+        [randomUUID(), payload.name, payload.description],
+      );
 
   return mapTeamRow(result.rows[0]);
 }
 
 async function update(id: string, payload: SaveTeamInput): Promise<Team | undefined> {
-  const result = await pool.query<TeamRow>(
-    `
-      UPDATE public.teams
-      SET
-        name = $2,
-        description = $3,
-        updated_at = NOW()
-      WHERE id = $1
-      RETURNING
-        id,
-        name,
-        description,
-        created_at,
-        updated_at;
-    `,
-    [id, payload.name, payload.description],
-  );
+  const canUseCategory = await hasTeamCategoryColumn();
+
+  const result = canUseCategory
+    ? await pool.query<TeamRow>(
+        `
+          UPDATE public.teams
+          SET
+            name = $2,
+            category = $3,
+            description = $4,
+            updated_at = NOW()
+          WHERE id = $1
+          RETURNING
+            id,
+            name,
+            category,
+            description,
+            created_at,
+            updated_at;
+        `,
+        [id, payload.name, payload.category, payload.description],
+      )
+    : await pool.query<TeamRow>(
+        `
+          UPDATE public.teams
+          SET
+            name = $2,
+            description = $3,
+            updated_at = NOW()
+          WHERE id = $1
+          RETURNING
+            id,
+            name,
+            'interna'::text AS category,
+            description,
+            created_at,
+            updated_at;
+        `,
+        [id, payload.name, payload.description],
+      );
 
   return result.rows[0] ? mapTeamRow(result.rows[0]) : undefined;
 }

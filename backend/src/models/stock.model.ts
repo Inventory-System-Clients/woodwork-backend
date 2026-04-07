@@ -3,6 +3,38 @@ import { z } from "zod";
 export const stockMovementTypeSchema = z.enum(["entrada", "saida"]);
 export type StockMovementType = z.infer<typeof stockMovementTypeSchema>;
 
+const queryBooleanSchema = z.preprocess((value) => {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalizedValue = value.trim().toLowerCase();
+
+    if (normalizedValue === "true") {
+      return true;
+    }
+
+    if (normalizedValue === "false") {
+      return false;
+    }
+  }
+
+  return value;
+}, z.boolean().optional());
+
+const isoDateQuerySchema = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must follow YYYY-MM-DD format")
+  .refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`)), {
+    message: "Date must be valid",
+  });
+
 export const createStockMovementSchema = z.object({
   productId: z.string().trim().min(1, "productId is required"),
   movementType: stockMovementTypeSchema,
@@ -16,9 +48,26 @@ export const createStockMovementSchema = z.object({
 export const listStockMovementsQuerySchema = z.object({
   productId: z.string().trim().min(1).optional(),
   movementType: stockMovementTypeSchema.optional(),
+  referenceType: z.string().trim().min(1).max(80).optional(),
+  activeOnly: queryBooleanSchema,
+  startDate: isoDateQuerySchema.optional(),
+  endDate: isoDateQuerySchema.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
-});
+})
+  .refine(
+    (payload) => {
+      if (!payload.startDate || !payload.endDate) {
+        return true;
+      }
+
+      return payload.startDate <= payload.endDate;
+    },
+    {
+      message: "startDate must be before or equal to endDate",
+      path: ["startDate"],
+    },
+  );
 
 export interface StockMovement {
   id: string;

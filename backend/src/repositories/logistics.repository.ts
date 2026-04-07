@@ -1,5 +1,11 @@
 import { pool } from "../database/postgres";
-import { LogisticsSummary, LogisticsSummaryTopMaterial } from "../models/logistics.model";
+import {
+  ActiveProductionMaterialConsumptionItem,
+  ActiveProductionMaterialConsumptionResponse,
+  LogisticsDateFilterQueryInput,
+  LogisticsSummary,
+  LogisticsSummaryTopMaterial,
+} from "../models/logistics.model";
 
 const ACTIVE_PRODUCTION_STATUSES = [
   "pending",
@@ -27,6 +33,39 @@ interface TopMaterialRow {
   total_quantity: string | number | null;
 }
 
+interface ActiveMaterialConsumptionRow {
+  product_id: string;
+  product_name: string;
+  unit: string | null;
+  total_quantity_used: string | number;
+  active_productions_count: string | number;
+}
+
+function normalizedProductionStatusSql(columnName: string): string {
+  return `
+    LOWER(
+      TRANSLATE(
+        COALESCE(${columnName}, ''),
+        'ÁÀÂÃÄáàâãäÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇç',
+        'AAAAAaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuCc'
+      )
+    )
+  `;
+}
+
+function activeProductionPredicateSql(columnName: string): string {
+  const normalizedStatus = normalizedProductionStatusSql(columnName);
+
+  return `
+    ${normalizedStatus} NOT LIKE '%approved%'
+    AND ${normalizedStatus} NOT LIKE '%aprovad%'
+    AND ${normalizedStatus} NOT LIKE '%delivered%'
+    AND ${normalizedStatus} NOT LIKE '%entreg%'
+    AND ${normalizedStatus} NOT LIKE '%completed%'
+    AND ${normalizedStatus} NOT LIKE '%concluid%'
+  `;
+}
+
 function toNumber(value: string | number | null): number {
   if (value === null) {
     return 0;
@@ -43,6 +82,30 @@ function mapTopMaterialRow(row: TopMaterialRow): LogisticsSummaryTopMaterial {
     unit: row.unit ?? "",
     totalQuantity: toNumber(row.total_quantity),
   };
+}
+
+function mapActiveMaterialConsumptionRow(
+  row: ActiveMaterialConsumptionRow,
+): ActiveProductionMaterialConsumptionItem {
+  return {
+    productId: row.product_id,
+    productName: row.product_name,
+    unit: row.unit ?? "",
+    totalQuantityUsed: toNumber(row.total_quantity_used),
+    activeProductionsCount: toNumber(row.active_productions_count),
+  };
+}
+
+function toUtcRangeBoundary(value: string | undefined, mode: "start" | "end"): string | null {
+  if (!value) {
+    return null;
+  }
+
+  if (mode === "start") {
+    return `${value}T00:00:00.000Z`;
+  }
+
+  return `${value}T23:59:59.999Z`;
 }
 
 async function getSummary(): Promise<LogisticsSummary> {
@@ -121,6 +184,60 @@ async function getSummary(): Promise<LogisticsSummary> {
   };
 }
 
+async function getActiveProductionsMaterialConsumption(
+  query: LogisticsDateFilterQueryInput,
+): Promise<ActiveProductionMaterialConsumptionResponse> {
+  const whereClauses: string[] = [
+    "psm.movement_type = 'saida'",
+    "psm.reference_id IS NOT NULL",
+    "(psm.reference_type = 'production' OR psm.reference_type = 'production_order')",
+    activeProductionPredicateSql("po.production_status"),
+  ];
+  const params: string[] = [];
+
+  if (query.startDate) {
+    params.push(query.startDate);
+    whereClauses.push(`psm.created_at >= $${params.length}::date`);
+  }
+
+  if (query.endDate) {
+    params.push(query.endDate);
+    whereClauses.push(`psm.created_at < ($${params.length}::date + INTERVAL '1 day')`);
+  }
+
+  const whereSql = `WHERE ${whereClauses.join(" AND ")}`;
+
+  const result = await pool.query<ActiveMaterialConsumptionRow>(
+    `
+      SELECT
+        psm.product_id,
+        COALESCE(NULLIF(BTRIM(p.name), ''), psm.product_id) AS product_name,
+        COALESCE(NULLIF(BTRIM(MAX(psm.unit)), ''), '') AS unit,
+        COALESCE(SUM(psm.quantity), 0) AS total_quantity_used,
+        COUNT(DISTINCT psm.reference_id) AS active_productions_count
+      FROM public.product_stock_movements psm
+      INNER JOIN public.production_orders po
+        ON po.id::text = psm.reference_id
+      LEFT JOIN public.products p
+        ON p.id::text = psm.product_id
+      ${whereSql}
+      GROUP BY psm.product_id, COALESCE(NULLIF(BTRIM(p.name), ''), psm.product_id)
+      ORDER BY total_quantity_used DESC, product_name ASC;
+    `,
+    params,
+  );
+
+  return {
+    data: result.rows.map(mapActiveMaterialConsumptionRow),
+    meta: {
+      startDate: toUtcRangeBoundary(query.startDate, "start"),
+      endDate: toUtcRangeBoundary(query.endDate, "end"),
+      totalItems: result.rows.length,
+    },
+  };
+}
+
 export const logisticsRepository = {
   getSummary,
+  getActiveProductionsMaterialConsumption,
 };

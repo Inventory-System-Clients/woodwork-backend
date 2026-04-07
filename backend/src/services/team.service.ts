@@ -45,6 +45,7 @@ async function createTeam(payload: CreateTeamInput): Promise<Team> {
 
   const team = await teamRepository.create({
     name: payload.name,
+    category: payload.category,
     description: payload.description ?? null,
   });
 
@@ -77,6 +78,7 @@ async function updateTeam(id: string, payload: UpdateTeamInput): Promise<Team> {
 
   const updatedTeam = await teamRepository.update(id, {
     name: payload.name ?? existingTeam.name,
+    category: payload.category ?? existingTeam.category,
     description: payload.description !== undefined ? payload.description : existingTeam.description,
   });
 

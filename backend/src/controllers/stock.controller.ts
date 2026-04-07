@@ -16,6 +16,10 @@ const listMovements = asyncHandler(async (req: Request, res: Response) => {
   const query = listStockMovementsQuerySchema.parse({
     productId: toOptionalQueryString(req.query.productId),
     movementType: toOptionalQueryString(req.query.movementType),
+    referenceType: toOptionalQueryString(req.query.referenceType),
+    activeOnly: toOptionalQueryString(req.query.activeOnly),
+    startDate: toOptionalQueryString(req.query.startDate),
+    endDate: toOptionalQueryString(req.query.endDate),
     limit: toOptionalQueryString(req.query.limit),
     offset: toOptionalQueryString(req.query.offset),
   });

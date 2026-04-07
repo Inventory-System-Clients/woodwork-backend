@@ -1,12 +1,16 @@
 import { Request, Response } from "express";
+import { listProductionsQuerySchema } from "../models/production.model";
 import { productionService } from "../services/production.service";
 import { asyncHandler } from "../utils/async-handler";
 
 const list = asyncHandler(async (req: Request, res: Response) => {
   const employeeIdQuery = typeof req.query.employeeId === "string" ? req.query.employeeId : undefined;
   const employeeId = req.authUser?.role === "funcionario" ? req.authUser.id : employeeIdQuery;
+  const query = listProductionsQuerySchema.parse({
+    active: req.query.active,
+  });
 
-  const productions = await productionService.listProductions(employeeId);
+  const productions = await productionService.listProductions(employeeId, query.active ?? false);
   res.status(200).json({ data: productions });
 });
 
