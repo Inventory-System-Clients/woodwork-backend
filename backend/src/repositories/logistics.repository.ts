@@ -1,11 +1,16 @@
+import { randomUUID } from "node:crypto";
 import { pool } from "../database/postgres";
 import {
   ActiveProductionMaterialConsumptionItem,
   ActiveProductionMaterialConsumptionResponse,
+  CreateFechamentoInput,
+  Fechamento,
+  ListFechamentosQueryInput,
   LogisticsDateFilterQueryInput,
   LogisticsSummary,
   LogisticsSummaryTopMaterial,
 } from "../models/logistics.model";
+import { AppError } from "../utils/app-error";
 
 const ACTIVE_PRODUCTION_STATUSES = [
   "pending",
@@ -39,6 +44,18 @@ interface ActiveMaterialConsumptionRow {
   unit: string | null;
   total_quantity_used: string | number;
   active_productions_count: string | number;
+}
+
+interface FechamentoRow {
+  id: string;
+  reference_month: string | Date;
+  custo_geral_ativo: string | number;
+  receita_vinculada: string | number;
+  lucro_liquido: string | number;
+  lucro_bruto: string | number;
+  custos_aplicados_pre_aprovados: string | number;
+  created_at: string | Date;
+  updated_at: string | Date;
 }
 
 function normalizedProductionStatusSql(columnName: string): string {
@@ -75,6 +92,22 @@ function toNumber(value: string | number | null): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function toDateString(value: string | Date): string {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function toReferenceMonth(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
 function mapTopMaterialRow(row: TopMaterialRow): LogisticsSummaryTopMaterial {
   return {
     productId: row.product_id ?? "",
@@ -93,6 +126,20 @@ function mapActiveMaterialConsumptionRow(
     unit: row.unit ?? "",
     totalQuantityUsed: toNumber(row.total_quantity_used),
     activeProductionsCount: toNumber(row.active_productions_count),
+  };
+}
+
+function mapFechamentoRow(row: FechamentoRow): Fechamento {
+  return {
+    id: row.id,
+    referenceMonth: toReferenceMonth(row.reference_month),
+    custoGeralAtivo: toNumber(row.custo_geral_ativo),
+    receitaVinculada: toNumber(row.receita_vinculada),
+    lucroLiquido: toNumber(row.lucro_liquido),
+    lucroBruto: toNumber(row.lucro_bruto),
+    custosAplicadosPreAprovados: toNumber(row.custos_aplicados_pre_aprovados),
+    createdAt: toDateString(row.created_at),
+    updatedAt: toDateString(row.updated_at),
   };
 }
 
@@ -237,7 +284,110 @@ async function getActiveProductionsMaterialConsumption(
   };
 }
 
+async function listFechamentos(query: ListFechamentosQueryInput): Promise<Fechamento[]> {
+  try {
+    const params: string[] = [];
+    const whereClauses: string[] = [];
+
+    if (query.referenceMonth) {
+      params.push(`${query.referenceMonth}-01`);
+      whereClauses.push(`f.reference_month = $${params.length}::date`);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+
+    const result = await pool.query<FechamentoRow>(
+      `
+        SELECT
+          f.id,
+          f.reference_month,
+          f.custo_geral_ativo,
+          f.receita_vinculada,
+          f.lucro_liquido,
+          f.lucro_bruto,
+          f.custos_aplicados_pre_aprovados,
+          f.created_at,
+          f.updated_at
+        FROM public.fechamento f
+        ${whereSql}
+        ORDER BY f.reference_month DESC, f.updated_at DESC;
+      `,
+      params,
+    );
+
+    return result.rows.map(mapFechamentoRow);
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+
+    if (code === "42P01" || code === "42703") {
+      throw new AppError("Fechamento schema is not configured. Run sql/20260407_create_fechamento.sql", 500);
+    }
+
+    throw error;
+  }
+}
+
+async function upsertFechamento(payload: CreateFechamentoInput): Promise<Fechamento> {
+  try {
+    const referenceMonthDate = `${payload.referenceMonth}-01`;
+
+    const result = await pool.query<FechamentoRow>(
+      `
+        INSERT INTO public.fechamento (
+          id,
+          reference_month,
+          custo_geral_ativo,
+          receita_vinculada,
+          lucro_liquido,
+          lucro_bruto,
+          custos_aplicados_pre_aprovados
+        )
+        VALUES ($1, $2::date, $3, $4, $5, $6, $7)
+        ON CONFLICT (reference_month)
+        DO UPDATE SET
+          custo_geral_ativo = EXCLUDED.custo_geral_ativo,
+          receita_vinculada = EXCLUDED.receita_vinculada,
+          lucro_liquido = EXCLUDED.lucro_liquido,
+          lucro_bruto = EXCLUDED.lucro_bruto,
+          custos_aplicados_pre_aprovados = EXCLUDED.custos_aplicados_pre_aprovados,
+          updated_at = NOW()
+        RETURNING
+          id,
+          reference_month,
+          custo_geral_ativo,
+          receita_vinculada,
+          lucro_liquido,
+          lucro_bruto,
+          custos_aplicados_pre_aprovados,
+          created_at,
+          updated_at;
+      `,
+      [
+        randomUUID(),
+        referenceMonthDate,
+        payload.custoGeralAtivo,
+        payload.receitaVinculada,
+        payload.lucroLiquido,
+        payload.lucroBruto,
+        payload.custosAplicadosPreAprovados,
+      ],
+    );
+
+    return mapFechamentoRow(result.rows[0]);
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+
+    if (code === "42P01" || code === "42703") {
+      throw new AppError("Fechamento schema is not configured. Run sql/20260407_create_fechamento.sql", 500);
+    }
+
+    throw error;
+  }
+}
+
 export const logisticsRepository = {
   getSummary,
   getActiveProductionsMaterialConsumption,
+  listFechamentos,
+  upsertFechamento,
 };

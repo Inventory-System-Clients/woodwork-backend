@@ -33,6 +33,26 @@ export const logisticsDateFilterQuerySchema = z
     },
   );
 
+export const fechamentoReferenceMonthSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "referenceMonth must follow YYYY-MM");
+
+export const createFechamentoSchema = z.object({
+  referenceMonth: fechamentoReferenceMonthSchema,
+  custoGeralAtivo: z.coerce.number().nonnegative("custoGeralAtivo cannot be negative"),
+  receitaVinculada: z.coerce.number().nonnegative("receitaVinculada cannot be negative"),
+  lucroLiquido: z.coerce.number(),
+  lucroBruto: z.coerce.number(),
+  custosAplicadosPreAprovados: z.coerce
+    .number()
+    .nonnegative("custosAplicadosPreAprovados cannot be negative"),
+});
+
+export const listFechamentosQuerySchema = z.object({
+  referenceMonth: fechamentoReferenceMonthSchema.optional(),
+});
+
 export interface LogisticsSummaryProductionStats {
   activeCount: number;
   overdueCount: number;
@@ -72,4 +92,18 @@ export interface ActiveProductionMaterialConsumptionResponse {
   };
 }
 
+export interface Fechamento {
+  id: string;
+  referenceMonth: string;
+  custoGeralAtivo: number;
+  receitaVinculada: number;
+  lucroLiquido: number;
+  lucroBruto: number;
+  custosAplicadosPreAprovados: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type LogisticsDateFilterQueryInput = z.infer<typeof logisticsDateFilterQuerySchema>;
+export type CreateFechamentoInput = z.infer<typeof createFechamentoSchema>;
+export type ListFechamentosQueryInput = z.infer<typeof listFechamentosQuerySchema>;

@@ -1,5 +1,8 @@
 import { Request, Response } from "express";
-import { logisticsDateFilterQuerySchema } from "../models/logistics.model";
+import {
+  listFechamentosQuerySchema,
+  logisticsDateFilterQuerySchema,
+} from "../models/logistics.model";
 import { logisticsService } from "../services/logistics.service";
 import { asyncHandler } from "../utils/async-handler";
 
@@ -27,7 +30,23 @@ const activeProductionsMaterialConsumption = asyncHandler(async (req: Request, r
   res.status(200).json(payload);
 });
 
+const listFechamentos = asyncHandler(async (req: Request, res: Response) => {
+  const query = listFechamentosQuerySchema.parse({
+    referenceMonth: toOptionalQueryString(req.query.referenceMonth),
+  });
+
+  const data = await logisticsService.listFechamentos(query);
+  res.status(200).json({ data });
+});
+
+const createFechamento = asyncHandler(async (req: Request, res: Response) => {
+  const data = await logisticsService.createFechamento(req.body);
+  res.status(201).json({ data });
+});
+
 export const logisticsController = {
   summary,
   activeProductionsMaterialConsumption,
+  listFechamentos,
+  createFechamento,
 };
