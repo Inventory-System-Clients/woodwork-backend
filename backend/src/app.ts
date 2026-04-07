@@ -8,8 +8,26 @@ import { apiRoutes } from "./routes";
 
 export const app = express();
 
+const allowedOrigins = [
+	"http://localhost:5173",
+	"http://127.0.0.1:5173",
+	"https://grupogk.selfmachine.com.br",
+];
+
 app.use(helmet());
-app.use(cors());
+app.use(
+	cors({
+		origin: (origin, callback) => {
+			if (!origin || allowedOrigins.includes(origin)) {
+				callback(null, true);
+				return;
+			}
+
+			callback(new Error("CORS: origin not allowed"));
+		},
+		credentials: true,
+	}),
+);
 app.use(express.json());
 app.use(morgan("dev"));
 
