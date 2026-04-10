@@ -9,8 +9,8 @@ import { apiRoutes } from "./routes";
 export const app = express();
 
 const allowedOrigins = [
-	"http://localhost:5173",
-	"http://127.0.0.1:5173",
+	"http://localhost:8080",
+	"http://10.0.0.160:8080/",
 	"https://grupogk.selfmachine.com.br",
 	"https://maisquiosque.selfmachine.com.br",
 ];
