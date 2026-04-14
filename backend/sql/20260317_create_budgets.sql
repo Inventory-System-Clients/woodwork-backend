@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS public.budgets (
   category TEXT NOT NULL DEFAULT 'executivo',
   description TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
+  estimated_delivery_business_days INTEGER,
   delivery_date TIMESTAMPTZ,
   total_price NUMERIC(14,2) NOT NULL DEFAULT 0,
   notes TEXT,
@@ -13,7 +14,9 @@ CREATE TABLE IF NOT EXISTS public.budgets (
   CONSTRAINT chk_budgets_category
     CHECK (category IN ('arquitetonico', 'executivo')),
   CONSTRAINT chk_budgets_status
-    CHECK (status IN ('draft', 'pending', 'pre_approved', 'approved', 'rejected'))
+    CHECK (status IN ('draft', 'pending', 'pre_approved', 'approved', 'rejected')),
+  CONSTRAINT chk_budgets_estimated_delivery_business_days_positive
+    CHECK (estimated_delivery_business_days IS NULL OR estimated_delivery_business_days > 0)
 );
 
 CREATE TABLE IF NOT EXISTS public.budget_materials (

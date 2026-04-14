@@ -1,12 +1,5 @@
 import { z } from "zod";
 
-const deliveryDateSchema = z
-  .string()
-  .trim()
-  .refine((value) => !Number.isNaN(Date.parse(value)), {
-    message: "deliveryDate must be a valid date",
-  });
-
 const queryDateSchema = z
   .string()
   .trim()
@@ -19,6 +12,13 @@ const profitMarginSchema = z.coerce
   .number()
   .min(0, "profitMargin cannot be negative")
   .max(1, "profitMargin must be in decimal format between 0 and 1");
+const estimatedDeliveryBusinessDaysSchema = z
+  .number({
+    required_error: "Campo estimatedDeliveryBusinessDays e obrigatorio.",
+    invalid_type_error: "estimatedDeliveryBusinessDays deve ser um numero inteiro maior que zero.",
+  })
+  .int("estimatedDeliveryBusinessDays deve ser um numero inteiro maior que zero.")
+  .gt(0, "estimatedDeliveryBusinessDays deve ser um numero inteiro maior que zero.");
 
 const optionalTextField = (maxLength: number) =>
   z.string().trim().min(1).max(maxLength).optional().nullable();
@@ -60,7 +60,7 @@ export const createBudgetSchema = z.object({
   clientName: z.string().trim().min(2, "clientName must have at least 2 characters").max(200),
   category: budgetCategorySchema,
   description: z.string().trim().min(1, "description is required").max(2000),
-  deliveryDate: deliveryDateSchema.optional().nullable(),
+  estimatedDeliveryBusinessDays: estimatedDeliveryBusinessDaysSchema,
   totalPrice: monetarySchema.default(0),
   totalCost: monetarySchema.optional(),
   costsApplicableValue: monetarySchema.optional(),
@@ -78,7 +78,7 @@ export const updateBudgetSchema = z
     clientName: z.string().trim().min(2, "clientName must have at least 2 characters").max(200).optional(),
     category: budgetCategorySchema.optional(),
     description: z.string().trim().min(1, "description is required").max(2000).optional(),
-    deliveryDate: deliveryDateSchema.optional().nullable(),
+    estimatedDeliveryBusinessDays: estimatedDeliveryBusinessDaysSchema.optional(),
     totalPrice: monetarySchema.optional(),
     totalCost: monetarySchema.optional(),
     costsApplicableValue: monetarySchema.optional(),
@@ -160,6 +160,7 @@ export interface Budget {
   category: BudgetCategory;
   description: string;
   status: BudgetStatus;
+  estimatedDeliveryBusinessDays: number | null;
   deliveryDate: string | null;
   totalPrice: number;
   totalCost: number;
