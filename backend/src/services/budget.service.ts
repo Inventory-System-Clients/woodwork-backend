@@ -26,16 +26,19 @@ function resolveApprovedAt(currentStatus: BudgetStatus, nextStatus: BudgetStatus
 }
 
 async function listBudgets(query: ListBudgetsQueryInput): Promise<PaginatedBudgets> {
+  await budgetRepository.runLifecycleMaintenance();
   return budgetRepository.findAll(query);
 }
 
 async function listExpenseDepartmentsCatalog(
   query: ListExpenseDepartmentsQueryInput,
 ): Promise<ExpenseDepartmentCatalogItem[]> {
+  await budgetRepository.runLifecycleMaintenance();
   return budgetRepository.listExpenseDepartmentsCatalog(query);
 }
 
 async function getBudgetById(id: string): Promise<Budget> {
+  await budgetRepository.runLifecycleMaintenance();
   const budget = await budgetRepository.findById(id);
 
   if (!budget) {
@@ -46,6 +49,7 @@ async function getBudgetById(id: string): Promise<Budget> {
 }
 
 async function createBudget(payload: CreateBudgetInput): Promise<Budget> {
+  await budgetRepository.runLifecycleMaintenance();
   const shouldCreateAsApproved = payload.status === "approved";
   const creationPayload: CreateBudgetInput = shouldCreateAsApproved
     ? {
@@ -70,6 +74,7 @@ async function createBudget(payload: CreateBudgetInput): Promise<Budget> {
 }
 
 async function updateBudget(id: string, payload: UpdateBudgetInput): Promise<Budget> {
+  await budgetRepository.runLifecycleMaintenance();
   const existingBudget = await budgetRepository.findById(id);
 
   if (!existingBudget) {
@@ -138,6 +143,7 @@ async function updateBudget(id: string, payload: UpdateBudgetInput): Promise<Bud
 }
 
 async function approveBudget(id: string): Promise<Budget> {
+  await budgetRepository.runLifecycleMaintenance();
   const budget = await budgetRepository.approve(id);
 
   if (!budget) {

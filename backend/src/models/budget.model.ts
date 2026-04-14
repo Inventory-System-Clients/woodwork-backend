@@ -162,6 +162,10 @@ export interface Budget {
   status: BudgetStatus;
   estimatedDeliveryBusinessDays: number | null;
   deliveryDate: string | null;
+  validityBusinessDays: number;
+  elapsedBusinessDays: number;
+  remainingValidityBusinessDays: number;
+  isExpired: boolean;
   totalPrice: number;
   totalCost: number;
   costsApplicableValue: number;

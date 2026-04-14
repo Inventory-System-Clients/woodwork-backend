@@ -115,6 +115,11 @@ interface BudgetCountRow {
   total_count: string | number;
 }
 
+interface BudgetLifecycleMaintenanceResult {
+  autoRejectedCount: number;
+  deletedCount: number;
+}
+
 type ListBudgetsRecordInput = ListBudgetsQueryInput;
 
 let productsTableExists: boolean | null = null;
@@ -122,6 +127,8 @@ let productStockQuantityColumnExists: boolean | null = null;
 let productStockMovementsTableExists: boolean | null = null;
 let productNameColumnExists: boolean | null = null;
 let productLowStockAlertQuantityColumnExists: boolean | null = null;
+
+const BUDGET_VALIDITY_BUSINESS_DAYS = 15;
 
 function toDateString(value: string | Date | null): string | null {
   if (value === null) {
@@ -147,6 +154,35 @@ function round(value: number, decimals: number): number {
 
 function toMoney(value: number): number {
   return round(Math.max(0, value), 2);
+}
+
+function countBusinessDaysElapsedSince(value: string | Date): number {
+  const startDate = value instanceof Date ? new Date(value) : new Date(value);
+
+  if (Number.isNaN(startDate.getTime())) {
+    return 0;
+  }
+
+  const today = new Date();
+  const currentDate = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+  const endDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+  if (currentDate > endDate) {
+    return 0;
+  }
+
+  let businessDays = 0;
+
+  while (currentDate <= endDate) {
+    const dayOfWeek = currentDate.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      businessDays += 1;
+    }
+
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+
+  return businessDays;
 }
 
 // Official contract: profitMargin is decimal between 0 and 1.
@@ -221,6 +257,9 @@ function resolveBudgetFinancialSummary(
 
 function mapBudgetRow(row: BudgetRow): Budget {
   const financialSummary = resolveBudgetFinancialSummary(row, [], []);
+  const elapsedBusinessDays = countBusinessDaysElapsedSince(row.created_at);
+  const remainingValidityBusinessDays = Math.max(0, BUDGET_VALIDITY_BUSINESS_DAYS - elapsedBusinessDays);
+  const isExpired = elapsedBusinessDays > BUDGET_VALIDITY_BUSINESS_DAYS;
 
   return {
     id: row.id,
@@ -230,6 +269,10 @@ function mapBudgetRow(row: BudgetRow): Budget {
     status: row.status,
     estimatedDeliveryBusinessDays: row.estimated_delivery_business_days,
     deliveryDate: toDateString(row.delivery_date),
+    validityBusinessDays: BUDGET_VALIDITY_BUSINESS_DAYS,
+    elapsedBusinessDays,
+    remainingValidityBusinessDays,
+    isExpired,
     totalPrice: financialSummary.totalPrice,
     totalCost: financialSummary.totalCost,
     costsApplicableValue: financialSummary.costsApplicableValue,
@@ -1452,11 +1495,68 @@ async function approve(id: string): Promise<Budget | undefined> {
   }
 }
 
+async function runLifecycleMaintenance(): Promise<BudgetLifecycleMaintenanceResult> {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const autoRejectResult = await client.query<{ id: string }>(
+      `
+        WITH expirable_budgets AS (
+          SELECT b.id
+          FROM public.budgets b
+          WHERE b.status IN ('draft', 'pending')
+            AND (
+              SELECT COUNT(*)
+              FROM generate_series(
+                DATE_TRUNC('day', b.created_at)::date,
+                CURRENT_DATE,
+                INTERVAL '1 day'
+              ) AS d(day)
+              WHERE EXTRACT(ISODOW FROM d.day) < 6
+            ) > $1
+        )
+        UPDATE public.budgets b
+        SET
+          status = 'rejected',
+          updated_at = NOW()
+        FROM expirable_budgets e
+        WHERE b.id = e.id
+        RETURNING b.id;
+      `,
+      [BUDGET_VALIDITY_BUSINESS_DAYS],
+    );
+
+    const deleteResult = await client.query<{ id: string }>(
+      `
+        DELETE FROM public.budgets
+        WHERE status = 'rejected'
+          AND updated_at <= NOW() - INTERVAL '1 day'
+        RETURNING id;
+      `,
+    );
+
+    await client.query("COMMIT");
+
+    return {
+      autoRejectedCount: autoRejectResult.rowCount ?? 0,
+      deletedCount: deleteResult.rowCount ?? 0,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    normalizePersistenceError(error);
+  } finally {
+    client.release();
+  }
+}
+
 export const budgetRepository = {
   findAll,
   findById,
   create,
   save,
   approve,
+  runLifecycleMaintenance,
   listExpenseDepartmentsCatalog,
 };
