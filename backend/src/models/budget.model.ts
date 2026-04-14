@@ -19,6 +19,13 @@ const estimatedDeliveryBusinessDaysSchema = z
   })
   .int("estimatedDeliveryBusinessDays deve ser um numero inteiro maior que zero.")
   .gt(0, "estimatedDeliveryBusinessDays deve ser um numero inteiro maior que zero.");
+const paymentTermsSchema = z
+  .string({
+    invalid_type_error: "paymentTerms deve ser um texto valido.",
+  })
+  .trim()
+  .min(1, "paymentTerms deve ser um texto valido.")
+  .max(4000, "paymentTerms deve ter no maximo 4000 caracteres.");
 
 const optionalTextField = (maxLength: number) =>
   z.string().trim().min(1).max(maxLength).optional().nullable();
@@ -56,11 +63,26 @@ export const budgetExpenseDepartmentSchema = z.object({
   amount: z.coerce.number().nonnegative("amount cannot be negative"),
 });
 
-export const createBudgetSchema = z.object({
+function normalizeBudgetPayloadAliases(input: unknown): unknown {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return input;
+  }
+
+  const payload = { ...(input as Record<string, unknown>) };
+
+  if (payload.paymentTerms === undefined && payload.payment_terms !== undefined) {
+    payload.paymentTerms = payload.payment_terms;
+  }
+
+  return payload;
+}
+
+const createBudgetBaseSchema = z.object({
   clientName: z.string().trim().min(2, "clientName must have at least 2 characters").max(200),
   category: budgetCategorySchema,
   description: z.string().trim().min(1, "description is required").max(2000),
   estimatedDeliveryBusinessDays: estimatedDeliveryBusinessDaysSchema,
+  paymentTerms: paymentTermsSchema.optional().nullable(),
   totalPrice: monetarySchema.default(0),
   totalCost: monetarySchema.optional(),
   costsApplicableValue: monetarySchema.optional(),
@@ -73,12 +95,15 @@ export const createBudgetSchema = z.object({
   expenseDepartments: z.array(budgetExpenseDepartmentSchema).default([]),
 });
 
-export const updateBudgetSchema = z
+export const createBudgetSchema = z.preprocess(normalizeBudgetPayloadAliases, createBudgetBaseSchema);
+
+const updateBudgetBaseSchema = z
   .object({
     clientName: z.string().trim().min(2, "clientName must have at least 2 characters").max(200).optional(),
     category: budgetCategorySchema.optional(),
     description: z.string().trim().min(1, "description is required").max(2000).optional(),
     estimatedDeliveryBusinessDays: estimatedDeliveryBusinessDaysSchema.optional(),
+    paymentTerms: paymentTermsSchema.optional().nullable(),
     totalPrice: monetarySchema.optional(),
     totalCost: monetarySchema.optional(),
     costsApplicableValue: monetarySchema.optional(),
@@ -93,6 +118,8 @@ export const updateBudgetSchema = z
   .refine((payload) => Object.keys(payload).length > 0, {
     message: "At least one field must be provided",
   });
+
+export const updateBudgetSchema = z.preprocess(normalizeBudgetPayloadAliases, updateBudgetBaseSchema);
 
 export const listBudgetsQuerySchema = z
   .object({
@@ -161,6 +188,7 @@ export interface Budget {
   description: string;
   status: BudgetStatus;
   estimatedDeliveryBusinessDays: number | null;
+  paymentTerms: string | null;
   deliveryDate: string | null;
   validityBusinessDays: number;
   elapsedBusinessDays: number;

@@ -23,6 +23,7 @@ interface BudgetRow {
   description: string;
   status: BudgetStatus;
   estimated_delivery_business_days: number | null;
+  payment_terms: string | null;
   delivery_date: string | Date | null;
   total_price: string | number;
   total_cost: string | number | null;
@@ -98,6 +99,7 @@ export interface SaveBudgetRecordInput {
   description: string;
   status: BudgetStatus;
   estimatedDeliveryBusinessDays: number | null;
+  paymentTerms: string | null;
   deliveryDate: string | null;
   totalPrice: number;
   totalCost: number;
@@ -268,6 +270,7 @@ function mapBudgetRow(row: BudgetRow): Budget {
     description: row.description,
     status: row.status,
     estimatedDeliveryBusinessDays: row.estimated_delivery_business_days,
+    paymentTerms: row.payment_terms,
     deliveryDate: toDateString(row.delivery_date),
     validityBusinessDays: BUDGET_VALIDITY_BUSINESS_DAYS,
     elapsedBusinessDays,
@@ -487,6 +490,7 @@ function applyExpenseDepartmentsToBudgets(budgets: Budget[], grouped: Map<string
         description: budget.description,
         status: budget.status,
         estimated_delivery_business_days: budget.estimatedDeliveryBusinessDays,
+        payment_terms: budget.paymentTerms,
         delivery_date: budget.deliveryDate,
         total_price: budget.totalPrice,
         total_cost: budget.totalCost,
@@ -526,7 +530,7 @@ function normalizePersistenceError(error: unknown): never {
   if (code === "42P01" || code === "42703") {
     throw new AppError("Internal server error", 500, {
       reason:
-        "Budgets schema is not configured. Run sql/20260319_add_budget_financials_and_production_material_unit_price.sql, sql/20260331_add_budget_category.sql, sql/20260331_add_budget_expense_departments.sql, sql/20260331_add_budget_pre_approved_status_and_cost_application.sql, sql/20260331_add_budget_costs_applicable_value.sql and sql/20260414_add_budget_estimated_delivery_business_days.sql",
+        "Budgets schema is not configured. Run sql/20260319_add_budget_financials_and_production_material_unit_price.sql, sql/20260331_add_budget_category.sql, sql/20260331_add_budget_expense_departments.sql, sql/20260331_add_budget_pre_approved_status_and_cost_application.sql, sql/20260331_add_budget_costs_applicable_value.sql, sql/20260414_add_budget_estimated_delivery_business_days.sql and sql/20260414_add_budget_payment_terms.sql",
     });
   }
 
@@ -959,6 +963,7 @@ async function listByIdWithClient(client: PoolClient, id: string): Promise<Budge
           b.description,
           b.status,
           b.estimated_delivery_business_days,
+          b.payment_terms,
           b.delivery_date,
           b.total_price,
           b.total_cost,
@@ -1046,6 +1051,7 @@ async function findAll(query: ListBudgetsRecordInput): Promise<PaginatedBudgets>
           b.description,
           b.status,
           b.estimated_delivery_business_days,
+          b.payment_terms,
           b.delivery_date,
           b.total_price,
           b.total_cost,
@@ -1224,6 +1230,7 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
           description,
           status,
           estimated_delivery_business_days,
+          payment_terms,
           delivery_date,
           total_price,
           total_cost,
@@ -1251,9 +1258,10 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
           $12,
           $13,
           $14,
+          $15,
           CASE WHEN $5 = 'approved' THEN NOW() ELSE NULL END,
           CASE WHEN $5 IN ('pre_approved', 'approved') THEN NOW() ELSE NULL END,
-          CASE WHEN $5 IN ('pre_approved', 'approved') THEN $10::numeric ELSE 0::numeric END
+          CASE WHEN $5 IN ('pre_approved', 'approved') THEN $11::numeric ELSE 0::numeric END
         );
       `,
       [
@@ -1263,6 +1271,7 @@ async function create(payload: CreateBudgetRecordInput): Promise<Budget> {
         payload.description,
         payload.status,
         payload.estimatedDeliveryBusinessDays,
+        payload.paymentTerms ?? null,
         null,
         payload.totalPrice,
         financialValues.totalCost,
@@ -1329,21 +1338,22 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
           description = $4,
           status = $5,
           estimated_delivery_business_days = $6,
-          delivery_date = $7,
-          total_price = $8,
-          total_cost = $9,
-          costs_applicable_value = $10,
-          profit_margin = $11,
-          profit_value = $12,
-          labor_cost = $13,
-          notes = $14,
-          approved_at = $15,
+          payment_terms = $7,
+          delivery_date = $8,
+          total_price = $9,
+          total_cost = $10,
+          costs_applicable_value = $11,
+          profit_margin = $12,
+          profit_value = $13,
+          labor_cost = $14,
+          notes = $15,
+          approved_at = $16,
           costs_applied_at = CASE
             WHEN $5 IN ('pre_approved', 'approved') THEN COALESCE(costs_applied_at, NOW())
             ELSE costs_applied_at
           END,
           costs_applied_value = CASE
-            WHEN $5 IN ('pre_approved', 'approved') THEN $10::numeric
+            WHEN $5 IN ('pre_approved', 'approved') THEN $11::numeric
             ELSE costs_applied_value
           END,
           updated_at = NOW()
@@ -1355,6 +1365,7 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
           description,
           status,
           estimated_delivery_business_days,
+          payment_terms,
           delivery_date,
           total_price,
           total_cost,
@@ -1376,6 +1387,7 @@ async function save(id: string, payload: SaveBudgetRecordInput): Promise<Budget 
         payload.description,
         payload.status,
         payload.estimatedDeliveryBusinessDays,
+        payload.paymentTerms,
         payload.deliveryDate,
         payload.totalPrice,
         financialValues.totalCost,
@@ -1439,6 +1451,7 @@ async function approve(id: string): Promise<Budget | undefined> {
           description,
           status,
           estimated_delivery_business_days,
+          payment_terms,
           delivery_date,
           total_price,
           total_cost,

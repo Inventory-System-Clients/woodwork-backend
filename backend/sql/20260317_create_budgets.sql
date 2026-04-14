@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS public.budgets (
   description TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   estimated_delivery_business_days INTEGER,
+  payment_terms TEXT,
   delivery_date TIMESTAMPTZ,
   total_price NUMERIC(14,2) NOT NULL DEFAULT 0,
   notes TEXT,

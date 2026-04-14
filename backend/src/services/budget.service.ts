@@ -110,6 +110,7 @@ async function updateBudget(id: string, payload: UpdateBudgetInput): Promise<Bud
       payload.estimatedDeliveryBusinessDays !== undefined
         ? payload.estimatedDeliveryBusinessDays
         : existingBudget.estimatedDeliveryBusinessDays,
+    paymentTerms: payload.paymentTerms !== undefined ? payload.paymentTerms : existingBudget.paymentTerms,
     deliveryDate: existingBudget.deliveryDate,
     totalPrice: payload.totalPrice ?? existingBudget.totalPrice,
     totalCost: payload.totalCost ?? existingBudget.totalCost,
