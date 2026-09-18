@@ -1,12 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { pool } from "../database/postgres";
 import {
-  ActiveProductionMaterialConsumptionItem,
-  ActiveProductionMaterialConsumptionResponse,
   CreateFechamentoInput,
   Fechamento,
   ListFechamentosQueryInput,
-  LogisticsDateFilterQueryInput,
   LogisticsSummary,
   LogisticsSummaryTopMaterial,
 } from "../models/logistics.model";
@@ -38,14 +35,6 @@ interface TopMaterialRow {
   total_quantity: string | number | null;
 }
 
-interface ActiveMaterialConsumptionRow {
-  product_id: string;
-  product_name: string;
-  unit: string | null;
-  total_quantity_used: string | number;
-  active_productions_count: string | number;
-}
-
 interface FechamentoRow {
   id: string;
   reference_month: string | Date;
@@ -56,31 +45,6 @@ interface FechamentoRow {
   custos_aplicados_pre_aprovados: string | number;
   created_at: string | Date;
   updated_at: string | Date;
-}
-
-function normalizedProductionStatusSql(columnName: string): string {
-  return `
-    LOWER(
-      TRANSLATE(
-        COALESCE(${columnName}, ''),
-        'ÁÀÂÃÄáàâãäÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇç',
-        'AAAAAaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuCc'
-      )
-    )
-  `;
-}
-
-function activeProductionPredicateSql(columnName: string): string {
-  const normalizedStatus = normalizedProductionStatusSql(columnName);
-
-  return `
-    ${normalizedStatus} NOT LIKE '%approved%'
-    AND ${normalizedStatus} NOT LIKE '%aprovad%'
-    AND ${normalizedStatus} NOT LIKE '%delivered%'
-    AND ${normalizedStatus} NOT LIKE '%entreg%'
-    AND ${normalizedStatus} NOT LIKE '%completed%'
-    AND ${normalizedStatus} NOT LIKE '%concluid%'
-  `;
 }
 
 function toNumber(value: string | number | null): number {
@@ -117,18 +81,6 @@ function mapTopMaterialRow(row: TopMaterialRow): LogisticsSummaryTopMaterial {
   };
 }
 
-function mapActiveMaterialConsumptionRow(
-  row: ActiveMaterialConsumptionRow,
-): ActiveProductionMaterialConsumptionItem {
-  return {
-    productId: row.product_id,
-    productName: row.product_name,
-    unit: row.unit ?? "",
-    totalQuantityUsed: toNumber(row.total_quantity_used),
-    activeProductionsCount: toNumber(row.active_productions_count),
-  };
-}
-
 function mapFechamentoRow(row: FechamentoRow): Fechamento {
   return {
     id: row.id,
@@ -141,18 +93,6 @@ function mapFechamentoRow(row: FechamentoRow): Fechamento {
     createdAt: toDateString(row.created_at),
     updatedAt: toDateString(row.updated_at),
   };
-}
-
-function toUtcRangeBoundary(value: string | undefined, mode: "start" | "end"): string | null {
-  if (!value) {
-    return null;
-  }
-
-  if (mode === "start") {
-    return `${value}T00:00:00.000Z`;
-  }
-
-  return `${value}T23:59:59.999Z`;
 }
 
 async function getSummary(): Promise<LogisticsSummary> {
@@ -228,55 +168,6 @@ async function getSummary(): Promise<LogisticsSummary> {
     },
     topMaterials: topMaterialsResult.rows.map(mapTopMaterialRow),
     activeProductionsTotalCost: toNumber(summaryRow.active_productions_total_cost),
-  };
-}
-
-async function getActiveProductionsMaterialConsumption(
-  query: LogisticsDateFilterQueryInput,
-): Promise<ActiveProductionMaterialConsumptionResponse> {
-  const whereClauses: string[] = [activeProductionPredicateSql("po.production_status")];
-  const params: string[] = [];
-
-  if (query.startDate) {
-    params.push(query.startDate);
-    whereClauses.push(`po.created_at >= $${params.length}::date`);
-  }
-
-  if (query.endDate) {
-    params.push(query.endDate);
-    whereClauses.push(`po.created_at < ($${params.length}::date + INTERVAL '1 day')`);
-  }
-
-  const whereSql = `WHERE ${whereClauses.join(" AND ")}`;
-
-  // Materials planned/used in the productions that are still in progress (no stock ledger involved).
-  const result = await pool.query<ActiveMaterialConsumptionRow>(
-    `
-      SELECT
-        COALESCE(pom.product_id::text, '') AS product_id,
-        COALESCE(NULLIF(BTRIM(pom.product_name), ''), COALESCE(pom.product_id::text, '')) AS product_name,
-        COALESCE(NULLIF(BTRIM(MAX(pom.unit)), ''), '') AS unit,
-        COALESCE(SUM(pom.quantity), 0) AS total_quantity_used,
-        COUNT(DISTINCT po.id) AS active_productions_count
-      FROM public.production_order_materials pom
-      INNER JOIN public.production_orders po
-        ON po.id = pom.production_order_id
-      ${whereSql}
-      GROUP BY
-        COALESCE(pom.product_id::text, ''),
-        COALESCE(NULLIF(BTRIM(pom.product_name), ''), COALESCE(pom.product_id::text, ''))
-      ORDER BY total_quantity_used DESC, product_name ASC;
-    `,
-    params,
-  );
-
-  return {
-    data: result.rows.map(mapActiveMaterialConsumptionRow),
-    meta: {
-      startDate: toUtcRangeBoundary(query.startDate, "start"),
-      endDate: toUtcRangeBoundary(query.endDate, "end"),
-      totalItems: result.rows.length,
-    },
   };
 }
 
@@ -383,7 +274,6 @@ async function upsertFechamento(payload: CreateFechamentoInput): Promise<Fechame
 
 export const logisticsRepository = {
   getSummary,
-  getActiveProductionsMaterialConsumption,
   listFechamentos,
   upsertFechamento,
 };

@@ -15,13 +15,6 @@ logisticsRoutes.get(
 );
 
 logisticsRoutes.get(
-  "/active-productions/material-consumption",
-  requireAuth,
-  authorizeRoles("admin", "gerente"),
-  logisticsController.activeProductionsMaterialConsumption,
-);
-
-logisticsRoutes.get(
   "/fechamentos",
   requireAuth,
   authorizeRoles("admin", "gerente"),

@@ -1,8 +1,5 @@
 import { Request, Response } from "express";
-import {
-  listFechamentosQuerySchema,
-  logisticsDateFilterQuerySchema,
-} from "../models/logistics.model";
+import { listFechamentosQuerySchema } from "../models/logistics.model";
 import { logisticsService } from "../services/logistics.service";
 import { asyncHandler } from "../utils/async-handler";
 
@@ -18,16 +15,6 @@ function toOptionalQueryString(value: unknown): string | undefined {
 const summary = asyncHandler(async (_req: Request, res: Response) => {
   const data = await logisticsService.getLogisticsSummary();
   res.status(200).json({ data });
-});
-
-const activeProductionsMaterialConsumption = asyncHandler(async (req: Request, res: Response) => {
-  const query = logisticsDateFilterQuerySchema.parse({
-    startDate: toOptionalQueryString(req.query.startDate),
-    endDate: toOptionalQueryString(req.query.endDate),
-  });
-
-  const payload = await logisticsService.getActiveProductionsMaterialConsumption(query);
-  res.status(200).json(payload);
 });
 
 const listFechamentos = asyncHandler(async (req: Request, res: Response) => {
@@ -46,7 +33,6 @@ const createFechamento = asyncHandler(async (req: Request, res: Response) => {
 
 export const logisticsController = {
   summary,
-  activeProductionsMaterialConsumption,
   listFechamentos,
   createFechamento,
 };

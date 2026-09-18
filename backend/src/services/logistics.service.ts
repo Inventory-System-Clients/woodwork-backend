@@ -1,21 +1,13 @@
 import {
-  ActiveProductionMaterialConsumptionResponse,
   CreateFechamentoInput,
   Fechamento,
   ListFechamentosQueryInput,
-  LogisticsDateFilterQueryInput,
   LogisticsSummary,
 } from "../models/logistics.model";
 import { logisticsRepository } from "../repositories/logistics.repository";
 
 async function getLogisticsSummary(): Promise<LogisticsSummary> {
   return logisticsRepository.getSummary();
-}
-
-async function getActiveProductionsMaterialConsumption(
-  query: LogisticsDateFilterQueryInput,
-): Promise<ActiveProductionMaterialConsumptionResponse> {
-  return logisticsRepository.getActiveProductionsMaterialConsumption(query);
 }
 
 async function listFechamentos(query: ListFechamentosQueryInput): Promise<Fechamento[]> {
@@ -28,7 +20,6 @@ async function createFechamento(payload: CreateFechamentoInput): Promise<Fechame
 
 export const logisticsService = {
   getLogisticsSummary,
-  getActiveProductionsMaterialConsumption,
   listFechamentos,
   createFechamento,
 };

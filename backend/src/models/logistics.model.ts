@@ -75,23 +75,6 @@ export interface LogisticsSummary {
   activeProductionsTotalCost: number;
 }
 
-export interface ActiveProductionMaterialConsumptionItem {
-  productId: string;
-  productName: string;
-  unit: string;
-  totalQuantityUsed: number;
-  activeProductionsCount: number;
-}
-
-export interface ActiveProductionMaterialConsumptionResponse {
-  data: ActiveProductionMaterialConsumptionItem[];
-  meta: {
-    startDate: string | null;
-    endDate: string | null;
-    totalItems: number;
-  };
-}
-
 export interface Fechamento {
   id: string;
   referenceMonth: string;

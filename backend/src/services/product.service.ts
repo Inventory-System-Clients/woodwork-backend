@@ -40,7 +40,10 @@ async function updateProduct(id: string, payload: UpdateProductInput): Promise<P
     await ensureProductNameAvailable(payload.name, id);
   }
 
-  const updatedProduct = await productRepository.update(id, { name: payload.name });
+  const updatedProduct = await productRepository.update(id, {
+    name: payload.name,
+    supplier: payload.supplier ?? null,
+  });
 
   if (!updatedProduct) {
     throw new AppError("Product not found", 404);
