@@ -1329,7 +1329,65 @@ async function runLifecycleMaintenance(): Promise<BudgetLifecycleMaintenanceResu
   }
 }
 
+async function remove(id: string): Promise<boolean> {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const existing = await client.query<{ id: string }>(
+      "SELECT id FROM public.budgets WHERE id = $1 FOR UPDATE;",
+      [id],
+    );
+
+    if (existing.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+
+    const budgetColumn = await client.query<{ exists: boolean }>(
+      `
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'production_orders'
+            AND column_name = 'budget_id'
+        ) AS exists;
+      `,
+    );
+
+    if (budgetColumn.rows[0]?.exists) {
+      const linkedProduction = await client.query(
+        "SELECT 1 FROM public.production_orders WHERE budget_id::text = $1 LIMIT 1;",
+        [id],
+      );
+
+      if ((linkedProduction.rowCount ?? 0) > 0) {
+        throw new AppError("Budget already has a production and cannot be deleted", 409, { budgetId: id });
+      }
+    }
+
+    // budget_materials and budget_expense_departments are removed by ON DELETE CASCADE.
+    await client.query("DELETE FROM public.budgets WHERE id = $1;", [id]);
+
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK");
+
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    normalizePersistenceError(error);
+  } finally {
+    client.release();
+  }
+}
+
 export const budgetRepository = {
+  remove,
   findAll,
   findById,
   create,

@@ -56,7 +56,13 @@ const approve = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json({ data: budget });
 });
 
+const remove = asyncHandler(async (req: Request, res: Response) => {
+  await budgetService.deleteBudget(req.params.id);
+  res.status(200).json({ data: { id: req.params.id } });
+});
+
 export const budgetController = {
+  remove,
   list,
   listExpenseDepartments,
   getById,

@@ -16,5 +16,6 @@ budgetRoutes.get("/:id", budgetController.getById);
 budgetRoutes.post("/", validateBody(createBudgetSchema), budgetController.create);
 budgetRoutes.patch("/:id", validateBody(updateBudgetSchema), budgetController.update);
 budgetRoutes.patch("/:id/approve", budgetController.approve);
+budgetRoutes.delete("/:id", budgetController.remove);
 
 export { budgetRoutes };

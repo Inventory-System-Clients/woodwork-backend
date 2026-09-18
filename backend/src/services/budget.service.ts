@@ -154,7 +154,16 @@ async function approveBudget(id: string): Promise<Budget> {
   return budget;
 }
 
+async function deleteBudget(id: string): Promise<void> {
+  const deleted = await budgetRepository.remove(id);
+
+  if (!deleted) {
+    throw new AppError("Budget not found", 404);
+  }
+}
+
 export const budgetService = {
+  deleteBudget,
   listBudgets,
   listExpenseDepartmentsCatalog,
   getBudgetById,
