@@ -2,10 +2,14 @@ import {
   AdvanceProductionStatusInput,
   CreateProductionInput,
   Production,
+  ProductionCostReport,
+  ProductionExpense,
+  ProductionExpenseInput,
   ProductionStageOption,
   SetProductionStatusesInput,
 } from "../models/production.model";
 import { employeeRepository } from "../repositories/employee.repository";
+import { productionExpenseRepository } from "../repositories/production-expense.repository";
 import { productionRepository } from "../repositories/production.repository";
 import { teamRepository } from "../repositories/team.repository";
 import { AppError } from "../utils/app-error";
@@ -72,7 +76,88 @@ async function advanceProductionStatus(id: string, payload: AdvanceProductionSta
   return production;
 }
 
+async function deleteProduction(id: string): Promise<void> {
+  const deleted = await productionRepository.remove(id);
+
+  if (!deleted) {
+    throw new AppError("Production not found", 404, { productionId: id });
+  }
+}
+
+async function ensureProductionExists(id: string): Promise<Production> {
+  const production = await productionRepository.listById(id);
+
+  if (!production) {
+    throw new AppError("Production not found", 404, { productionId: id });
+  }
+
+  return production;
+}
+
+async function listExpenses(productionId: string): Promise<ProductionExpense[]> {
+  await ensureProductionExists(productionId);
+  return productionExpenseRepository.listByProductionId(productionId);
+}
+
+async function addExpense(productionId: string, payload: ProductionExpenseInput): Promise<ProductionExpense> {
+  await ensureProductionExists(productionId);
+  return productionExpenseRepository.create(productionId, payload);
+}
+
+async function deleteExpense(productionId: string, expenseId: string): Promise<void> {
+  const deleted = await productionExpenseRepository.remove(productionId, expenseId);
+
+  if (!deleted) {
+    throw new AppError("Expense not found", 404, { productionId, expenseId });
+  }
+}
+
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+async function getCostReport(productionId: string): Promise<ProductionCostReport> {
+  const production = await ensureProductionExists(productionId);
+  const expenses = await productionExpenseRepository.listByProductionId(productionId);
+
+  const materials = production.materials.map((material) => ({
+    productName: material.productName,
+    quantity: material.quantity,
+    unit: material.unit,
+    unitPrice: material.unitPrice,
+    subtotal: roundMoney(material.quantity * material.unitPrice),
+  }));
+
+  const materialsTotal = roundMoney(materials.reduce((sum, material) => sum + material.subtotal, 0));
+  const expensesTotal = roundMoney(expenses.reduce((sum, expense) => sum + expense.amount, 0));
+  const totalSpent = roundMoney(materialsTotal + expensesTotal);
+
+  return {
+    production: {
+      id: production.id,
+      clientName: production.clientName,
+      description: production.description,
+      productionStatus: production.productionStatus,
+      deliveryDate: production.deliveryDate,
+    },
+    isFinal: productionRepository.isFinishedStatus(production.productionStatus),
+    generatedAt: new Date().toISOString(),
+    initialCost: production.initialCost,
+    materials,
+    materialsTotal,
+    expenses,
+    expensesTotal,
+    totalSpent,
+    balance: roundMoney(production.initialCost - totalSpent),
+  };
+}
+
 export const productionService = {
+  listExpenses,
+  addExpense,
+  deleteExpense,
+  getCostReport,
+  deleteProduction,
   listProductions,
   listProductionStatusOptions,
   createProduction,

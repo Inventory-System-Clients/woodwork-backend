@@ -12,6 +12,7 @@ import {
   SetProductionStatusesInput,
 } from "../models/production.model";
 import { AppError } from "../utils/app-error";
+import { productionExpenseRepository } from "./production-expense.repository";
 
 type CreateProductionRepositoryInput = CreateProductionInput & {
   installationTeam: string | null;
@@ -1344,6 +1345,10 @@ async function create(payload: CreateProductionRepositoryInput): Promise<Product
       }
     }
 
+    for (const expense of payload.expenses ?? []) {
+      await productionExpenseRepository.insertExpense(client, production.id, expense);
+    }
+
     const hasStatusesSchema = await hasProductionStatusesSchema(client);
 
     if (hasStatusesSchema && payload.installationTeamId) {
@@ -1585,7 +1590,79 @@ async function setStatuses(id: string, input: SetProductionStatusesInput): Promi
   }
 }
 
+function isFinishedStatus(status: string | null | undefined): boolean {
+  const statusKey = normalizeStageName(status ?? "");
+
+  return ["approved", "aprovado", "delivered", "entregue", "completed", "concluido", "concluida"].some(
+    (keyword) => statusKey.includes(keyword),
+  );
+}
+
+async function deleteFromTableIfExists(
+  client: PoolClient,
+  tableName: string,
+  column: string,
+  productionId: string,
+): Promise<void> {
+  const tableResult = await client.query<{ exists: boolean }>(
+    "SELECT to_regclass($1) IS NOT NULL AS exists;",
+    [`public.${tableName}`],
+  );
+
+  if (!tableResult.rows[0]?.exists) {
+    return;
+  }
+
+  await client.query(`DELETE FROM public.${tableName} WHERE ${column}::text = $1;`, [productionId]);
+}
+
+async function remove(id: string): Promise<boolean> {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const currentResult = await client.query<{ production_status: string; completed_at: string | Date | null }>(
+      `
+        SELECT production_status, completed_at
+        FROM public.production_orders
+        WHERE id::text = $1
+        FOR UPDATE;
+      `,
+      [id],
+    );
+
+    if (currentResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+
+    const { production_status: status, completed_at: completedAt } = currentResult.rows[0];
+
+    if (Boolean(completedAt) || isFinishedStatus(status)) {
+      throw new AppError("Only productions in progress can be deleted", 409, { productionId: id });
+    }
+
+    await deleteFromTableIfExists(client, "production_order_statuses", "production_id", id);
+    await deleteFromTableIfExists(client, "production_images", "production_id", id);
+    await deleteFromTableIfExists(client, "production_share_links", "production_id", id);
+    await deleteFromTableIfExists(client, "production_expenses", "production_id", id);
+    await deleteFromTableIfExists(client, "production_order_materials", "production_order_id", id);
+    await client.query("DELETE FROM public.production_orders WHERE id::text = $1;", [id]);
+
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export const productionRepository = {
+  isFinishedStatus,
+  remove,
   findAll,
   listById,
   listStatusOptions,

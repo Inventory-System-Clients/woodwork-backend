@@ -8,6 +8,7 @@ import { validateBody } from "../middlewares/validate.middleware";
 import {
   advanceProductionStatusSchema,
   createProductionSchema,
+  productionExpenseSchema,
   setProductionStatusesSchema,
 } from "../models/production.model";
 import { AppError } from "../utils/app-error";
@@ -94,6 +95,37 @@ productionRoutes.patch(
   requireAuth,
   authorizeRoles("admin", "gerente"),
   productionController.complete,
+);
+productionRoutes.get(
+  "/:id/expenses",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  productionController.listExpenses,
+);
+productionRoutes.post(
+  "/:id/expenses",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  validateBody(productionExpenseSchema),
+  productionController.addExpense,
+);
+productionRoutes.delete(
+  "/:id/expenses/:expenseId",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  productionController.deleteExpense,
+);
+productionRoutes.get(
+  "/:id/cost-report",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  productionController.getCostReport,
+);
+productionRoutes.delete(
+  "/:id",
+  requireAuth,
+  authorizeRoles("admin", "gerente"),
+  productionController.remove,
 );
 productionRoutes.post(
   "/:id/share-link",

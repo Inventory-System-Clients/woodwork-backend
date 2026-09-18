@@ -11,6 +11,7 @@ import { publicRoutes } from "./public.routes";
 import { stockRoutes } from "./stock.routes";
 import { teamRoutes } from "./team.routes";
 import { userRoutes } from "./user.routes";
+import { workHoursRoutes } from "./work-hours.routes";
 
 const apiRoutes = Router();
 
@@ -26,5 +27,6 @@ apiRoutes.use("/public", publicRoutes);
 apiRoutes.use("/employees", employeeRoutes);
 apiRoutes.use("/teams", teamRoutes);
 apiRoutes.use("/users", userRoutes);
+apiRoutes.use("/work-hours", workHoursRoutes);
 
 export { apiRoutes };

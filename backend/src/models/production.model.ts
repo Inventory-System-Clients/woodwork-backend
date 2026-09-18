@@ -63,6 +63,12 @@ export const productionMaterialSchema = z.object({
   unitPrice: z.coerce.number().nonnegative("unitPrice cannot be negative").optional().nullable(),
 });
 
+export const productionExpenseSchema = z.object({
+  description: z.string().trim().min(1, "description is required").max(255),
+  category: z.string().trim().max(80).optional().nullable(),
+  amount: z.coerce.number().nonnegative("amount cannot be negative"),
+});
+
 export const createProductionSchema = z.object({
   clientName: z.string().trim().min(2, "clientName must have at least 2 characters").max(200),
   description: z.string().trim().min(1, "description is required").max(2000),
@@ -70,6 +76,7 @@ export const createProductionSchema = z.object({
   installationTeamId: z.string().trim().min(1, "installationTeamId is required"),
   initialCost: z.coerce.number().nonnegative("initialCost cannot be negative").default(0),
   materials: z.array(productionMaterialSchema).min(1, "At least one material is required"),
+  expenses: z.array(productionExpenseSchema).default([]),
 });
 
 export const productionStatusInputSchema = z
@@ -110,6 +117,43 @@ export interface Production {
   materials: ProductionMaterial[];
 }
 
+export interface ProductionExpense {
+  id: string;
+  productionId: string;
+  description: string;
+  category: string | null;
+  amount: number;
+  createdAt: string;
+}
+
+export interface ProductionCostReportMaterial {
+  productName: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  subtotal: number;
+}
+
+export interface ProductionCostReport {
+  production: {
+    id: string;
+    clientName: string;
+    description: string;
+    productionStatus: string;
+    deliveryDate: string | null;
+  };
+  isFinal: boolean;
+  generatedAt: string;
+  initialCost: number;
+  materials: ProductionCostReportMaterial[];
+  materialsTotal: number;
+  expenses: ProductionExpense[];
+  expensesTotal: number;
+  totalSpent: number;
+  balance: number;
+}
+
+export type ProductionExpenseInput = z.infer<typeof productionExpenseSchema>;
 export type CreateProductionInput = z.infer<typeof createProductionSchema>;
 export type AdvanceProductionStatusInput = z.infer<typeof advanceProductionStatusSchema>;
 export type SetProductionStatusesInput = z.infer<typeof setProductionStatusesSchema>;

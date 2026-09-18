@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { employeeController } from "../controllers/employee.controller";
+import { workHoursController } from "../controllers/work-hours.controller";
 import { requireAuth } from "../middlewares/auth.middleware";
 import { authorizeRoles } from "../middlewares/authorize.middleware";
 import { validateBody } from "../middlewares/validate.middleware";
@@ -12,6 +13,7 @@ employeeRoutes.use(authorizeRoles("admin", "gerente"));
 
 employeeRoutes.get("/", employeeController.list);
 employeeRoutes.get("/:id", employeeController.getById);
+employeeRoutes.get("/:id/work-hours", workHoursController.getEmployeeReport);
 employeeRoutes.post("/", validateBody(createEmployeeSchema), employeeController.create);
 employeeRoutes.patch("/:id", validateBody(updateEmployeeSchema), employeeController.update);
 employeeRoutes.delete("/:id", employeeController.remove);

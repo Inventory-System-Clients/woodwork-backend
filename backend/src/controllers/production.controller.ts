@@ -11,6 +11,19 @@ const list = asyncHandler(async (req: Request, res: Response) => {
   });
 
   const productions = await productionService.listProductions(employeeId, query.active ?? false);
+
+  if (req.authUser?.role === "funcionario") {
+    // Employees must not see costs.
+    res.status(200).json({
+      data: productions.map((production) => ({
+        ...production,
+        initialCost: 0,
+        materials: production.materials.map((material) => ({ ...material, unitPrice: 0 })),
+      })),
+    });
+    return;
+  }
+
   res.status(200).json({ data: productions });
 });
 
@@ -39,7 +52,37 @@ const setStatuses = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json({ data: production });
 });
 
+const remove = asyncHandler(async (req: Request, res: Response) => {
+  await productionService.deleteProduction(req.params.id);
+  res.status(200).json({ data: { id: req.params.id } });
+});
+
+const listExpenses = asyncHandler(async (req: Request, res: Response) => {
+  const expenses = await productionService.listExpenses(req.params.id);
+  res.status(200).json({ data: expenses });
+});
+
+const addExpense = asyncHandler(async (req: Request, res: Response) => {
+  const expense = await productionService.addExpense(req.params.id, req.body);
+  res.status(201).json({ data: expense });
+});
+
+const deleteExpense = asyncHandler(async (req: Request, res: Response) => {
+  await productionService.deleteExpense(req.params.id, req.params.expenseId);
+  res.status(200).json({ data: { id: req.params.expenseId } });
+});
+
+const getCostReport = asyncHandler(async (req: Request, res: Response) => {
+  const report = await productionService.getCostReport(req.params.id);
+  res.status(200).json({ data: report });
+});
+
 export const productionController = {
+  listExpenses,
+  addExpense,
+  deleteExpense,
+  getCostReport,
+  remove,
   list,
   listStatusOptions,
   create,
