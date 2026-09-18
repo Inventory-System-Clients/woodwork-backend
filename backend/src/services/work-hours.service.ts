@@ -1,8 +1,8 @@
 import {
+  DayWorkHours,
   EmployeeWorkHoursReport,
   ListWorkHoursQueryInput,
-  SetTodayWorkHoursInput,
-  TodayWorkHours,
+  SetDayWorkHoursInput,
 } from "../models/work-hours.model";
 import { employeeRepository } from "../repositories/employee.repository";
 import { productionRepository } from "../repositories/production.repository";
@@ -34,19 +34,31 @@ function sumMinutes(entries: { minutes: number }[]): number {
   return entries.reduce((sum, entry) => sum + entry.minutes, 0);
 }
 
-async function getToday(employeeId: string): Promise<TodayWorkHours> {
-  const date = formatDateInBusinessZone(new Date());
-  const entries = await workHoursRepository.listByEmployeeAndRange(employeeId, date, date);
+function resolveAllowedDate(requestedDate?: string): { date: string; today: string; yesterday: string } {
+  const today = formatDateInBusinessZone(new Date());
+  const yesterday = shiftDate(today, -1);
+  const date = requestedDate ?? today;
 
-  return { date, totalMinutes: sumMinutes(entries), entries };
+  if (date !== today && date !== yesterday) {
+    throw new AppError("Hours can only be logged for today or yesterday", 400, { today, yesterday });
+  }
+
+  return { date, today, yesterday };
 }
 
-async function setToday(employeeId: string, payload: SetTodayWorkHoursInput): Promise<TodayWorkHours> {
-  const date = formatDateInBusinessZone(new Date());
+async function getDay(employeeId: string, requestedDate?: string): Promise<DayWorkHours> {
+  const { date, today, yesterday } = resolveAllowedDate(requestedDate);
+  const entries = await workHoursRepository.listByEmployeeAndRange(employeeId, date, date);
+
+  return { date, today, yesterday, totalMinutes: sumMinutes(entries), entries };
+}
+
+async function setDay(employeeId: string, payload: SetDayWorkHoursInput): Promise<DayWorkHours> {
+  const { date } = resolveAllowedDate(payload.date);
 
   if (payload.minutes === 0) {
     await workHoursRepository.remove(employeeId, payload.productionId, date);
-    return getToday(employeeId);
+    return getDay(employeeId, date);
   }
 
   const productions = await productionRepository.findAll({ employeeId, activeOnly: true });
@@ -57,8 +69,8 @@ async function setToday(employeeId: string, payload: SetTodayWorkHoursInput): Pr
     });
   }
 
-  const today = await getToday(employeeId);
-  const otherMinutes = sumMinutes(today.entries.filter((entry) => entry.productionId !== payload.productionId));
+  const day = await getDay(employeeId, date);
+  const otherMinutes = sumMinutes(day.entries.filter((entry) => entry.productionId !== payload.productionId));
 
   if (otherMinutes + payload.minutes > MAX_MINUTES_PER_DAY) {
     throw new AppError("Total hours in a day cannot exceed 24 hours", 400, {
@@ -67,7 +79,7 @@ async function setToday(employeeId: string, payload: SetTodayWorkHoursInput): Pr
   }
 
   await workHoursRepository.upsert(employeeId, payload.productionId, date, payload.minutes);
-  return getToday(employeeId);
+  return getDay(employeeId, date);
 }
 
 async function getReportForEmployee(
@@ -97,7 +109,7 @@ async function getReportForEmployee(
 }
 
 export const workHoursService = {
-  getToday,
-  setToday,
+  getDay,
+  setDay,
   getReportForEmployee,
 };

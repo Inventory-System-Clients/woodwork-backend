@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { listWorkHoursQuerySchema } from "../models/work-hours.model";
+import { listWorkHoursQuerySchema, workHoursDateSchema } from "../models/work-hours.model";
 import { workHoursService } from "../services/work-hours.service";
 import { AppError } from "../utils/app-error";
 import { asyncHandler } from "../utils/async-handler";
@@ -12,13 +12,16 @@ function requireAuthUserId(req: Request): string {
   return req.authUser.id;
 }
 
-const getMyToday = asyncHandler(async (req: Request, res: Response) => {
-  const result = await workHoursService.getToday(requireAuthUserId(req));
+const getMyDay = asyncHandler(async (req: Request, res: Response) => {
+  const date =
+    typeof req.query.date === "string" ? workHoursDateSchema.parse(req.query.date) : undefined;
+
+  const result = await workHoursService.getDay(requireAuthUserId(req), date);
   res.status(200).json({ data: result });
 });
 
-const setMyToday = asyncHandler(async (req: Request, res: Response) => {
-  const result = await workHoursService.setToday(requireAuthUserId(req), req.body);
+const setMyDay = asyncHandler(async (req: Request, res: Response) => {
+  const result = await workHoursService.setDay(requireAuthUserId(req), req.body);
   res.status(200).json({ data: result });
 });
 
@@ -33,7 +36,7 @@ const getEmployeeReport = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const workHoursController = {
-  getMyToday,
-  setMyToday,
+  getMyDay,
+  setMyDay,
   getEmployeeReport,
 };

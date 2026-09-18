@@ -5,8 +5,11 @@ const dateOnlySchema = z
   .trim()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "date must use the YYYY-MM-DD format");
 
-export const setTodayWorkHoursSchema = z.object({
+export const workHoursDateSchema = dateOnlySchema;
+
+export const setDayWorkHoursSchema = z.object({
   productionId: z.string().trim().min(1, "productionId is required"),
+  date: dateOnlySchema.optional(),
   minutes: z.coerce
     .number()
     .int("minutes must be an integer")
@@ -28,8 +31,10 @@ export interface WorkHoursEntry {
   minutes: number;
 }
 
-export interface TodayWorkHours {
+export interface DayWorkHours {
   date: string;
+  today: string;
+  yesterday: string;
   totalMinutes: number;
   entries: WorkHoursEntry[];
 }
@@ -42,5 +47,5 @@ export interface EmployeeWorkHoursReport {
   entries: WorkHoursEntry[];
 }
 
-export type SetTodayWorkHoursInput = z.infer<typeof setTodayWorkHoursSchema>;
+export type SetDayWorkHoursInput = z.infer<typeof setDayWorkHoursSchema>;
 export type ListWorkHoursQueryInput = z.infer<typeof listWorkHoursQuerySchema>;
