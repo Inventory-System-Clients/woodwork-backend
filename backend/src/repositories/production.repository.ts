@@ -56,26 +56,10 @@ interface ProductionWithMaterialRow extends ProductionOrderRow {
   unit_price: string | number | null;
 }
 
-interface ProductionMaterialUsageRow {
-  product_id: string;
-  product_name: string | null;
-  quantity: string | number;
-  unit: string | null;
-}
-
-interface ProductStockRow {
-  id: string;
-  stock_quantity: string | number;
-}
-
 let productIdColumnExists: boolean | null = null;
 let unitPriceColumnExists: boolean | null = null;
 let installationTeamIdColumnExists: boolean | null = null;
 let teamMembersTableExists: boolean | null = null;
-let productsTableExists: boolean | null = null;
-let productStockQuantityColumnExists: boolean | null = null;
-let productStockMovementsTableExists: boolean | null = null;
-let productNameColumnExists: boolean | null = null;
 let productionStatusStagesTableExists: boolean | null = null;
 let productionOrderStatusesTableExists: boolean | null = null;
 let budgetIdColumnExists: boolean | null = null;
@@ -499,154 +483,6 @@ async function hasTeamMembersTable(client: PoolClient): Promise<boolean> {
   return teamMembersTableExists;
 }
 
-async function hasProductsTable(client: PoolClient): Promise<boolean> {
-  if (productsTableExists !== null) {
-    return productsTableExists;
-  }
-
-  const result = await client.query<{ exists: boolean }>(
-    `
-      SELECT EXISTS (
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = 'public'
-          AND table_name = 'products'
-      ) AS exists;
-    `,
-  );
-
-  productsTableExists = Boolean(result.rows[0]?.exists);
-  return productsTableExists;
-}
-
-async function hasProductStockQuantityColumn(client: PoolClient): Promise<boolean> {
-  if (productStockQuantityColumnExists !== null) {
-    return productStockQuantityColumnExists;
-  }
-
-  const result = await client.query<{ exists: boolean }>(
-    `
-      SELECT EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = 'products'
-          AND column_name = 'stock_quantity'
-      ) AS exists;
-    `,
-  );
-
-  productStockQuantityColumnExists = Boolean(result.rows[0]?.exists);
-  return productStockQuantityColumnExists;
-}
-
-async function hasProductStockMovementsTable(client: PoolClient): Promise<boolean> {
-  if (productStockMovementsTableExists !== null) {
-    return productStockMovementsTableExists;
-  }
-
-  const result = await client.query<{ exists: boolean }>(
-    `
-      SELECT EXISTS (
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = 'public'
-          AND table_name = 'product_stock_movements'
-      ) AS exists;
-    `,
-  );
-
-  productStockMovementsTableExists = Boolean(result.rows[0]?.exists);
-  return productStockMovementsTableExists;
-}
-
-async function hasProductNameColumn(client: PoolClient): Promise<boolean> {
-  if (productNameColumnExists !== null) {
-    return productNameColumnExists;
-  }
-
-  const result = await client.query<{ exists: boolean }>(
-    `
-      SELECT EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = 'products'
-          AND column_name = 'name'
-      ) AS exists;
-    `,
-  );
-
-  productNameColumnExists = Boolean(result.rows[0]?.exists);
-  return productNameColumnExists;
-}
-
-async function ensureStockControlSchema(client: PoolClient): Promise<void> {
-  const hasProducts = await hasProductsTable(client);
-  const hasStockColumn = await hasProductStockQuantityColumn(client);
-  const hasMovements = await hasProductStockMovementsTable(client);
-
-  if (!hasProducts || !hasStockColumn || !hasMovements) {
-    throw new AppError(
-      "Stock control schema is not configured. Run sql/20260317_add_product_stock_movements.sql",
-      500,
-    );
-  }
-}
-
-async function resolveProductIdForMaterial(
-  client: PoolClient,
-  productionOrderId: string,
-  material: ProductionMaterialUsageRow,
-): Promise<string> {
-  if (material.product_id && material.product_id.trim().length > 0) {
-    return material.product_id.trim();
-  }
-
-  if (!material.product_name || material.product_name.trim().length === 0) {
-    throw new AppError("Cannot resolve product for stock deduction", 400, {
-      productionOrderId,
-      productName: material.product_name,
-    });
-  }
-
-  const canUseProductName = await hasProductNameColumn(client);
-
-  if (!canUseProductName) {
-    throw new AppError(
-      "Products table does not have name column. Run sql/20260317_add_product_stock_movements.sql",
-      500,
-    );
-  }
-
-  const productByNameResult = await client.query<{ id: string }>(
-    `
-      SELECT id::text AS id
-      FROM public.products
-      WHERE LOWER(BTRIM(name)) = LOWER(BTRIM($1))
-      ORDER BY id::text
-      LIMIT 2;
-    `,
-    [material.product_name],
-  );
-
-  if (productByNameResult.rows.length === 0) {
-    throw new AppError("Material product was not found in products table", 400, {
-      productionOrderId,
-      productName: material.product_name,
-    });
-  }
-
-  if (productByNameResult.rows.length > 1) {
-    throw new AppError("Multiple products found for material name", 409, {
-      productionOrderId,
-      productName: material.product_name,
-    });
-  }
-
-  return productByNameResult.rows[0].id;
-}
-
 async function updateProductionStatus(
   client: PoolClient,
   productionOrderId: string,
@@ -686,111 +522,6 @@ async function updateProductionStatus(
 
 async function updateProductionAsApproved(client: PoolClient, productionOrderId: string): Promise<ProductionStatus> {
   return updateProductionStatus(client, productionOrderId, "approved");
-}
-
-async function deductMaterialsFromStock(client: PoolClient, productionOrderId: string): Promise<void> {
-  const canUseProductId = await hasProductIdColumn(client);
-
-  await ensureStockControlSchema(client);
-
-  const materialsResult = canUseProductId
-    ? await client.query<ProductionMaterialUsageRow>(
-        `
-          SELECT
-            pom.product_id,
-            pom.product_name,
-            SUM(pom.quantity) AS quantity,
-            MAX(pom.unit) AS unit
-          FROM public.production_order_materials pom
-          WHERE pom.production_order_id = $1
-          GROUP BY pom.product_id, pom.product_name;
-        `,
-        [productionOrderId],
-      )
-    : await client.query<ProductionMaterialUsageRow>(
-        `
-          SELECT
-            NULL::text AS product_id,
-            pom.product_name,
-            SUM(pom.quantity) AS quantity,
-            MAX(pom.unit) AS unit
-          FROM public.production_order_materials pom
-          WHERE pom.production_order_id = $1
-          GROUP BY pom.product_name;
-        `,
-        [productionOrderId],
-      );
-
-  for (const material of materialsResult.rows) {
-    const quantityToDeduct = toNumber(material.quantity);
-    const resolvedProductId = await resolveProductIdForMaterial(client, productionOrderId, material);
-
-    if (quantityToDeduct <= 0) {
-      continue;
-    }
-
-    const stockUpdateResult = await client.query<ProductStockRow>(
-      `
-        UPDATE public.products
-        SET stock_quantity = stock_quantity - $1
-        WHERE id::text = $2
-          AND stock_quantity >= $1
-        RETURNING
-          id::text AS id,
-          stock_quantity;
-      `,
-      [quantityToDeduct, resolvedProductId],
-    );
-
-    if (stockUpdateResult.rows.length === 0) {
-      const productResult = await client.query<{ stock_quantity: string | number }>(
-        `
-          SELECT stock_quantity
-          FROM public.products
-          WHERE id::text = $1;
-        `,
-        [resolvedProductId],
-      );
-
-      if (productResult.rows.length === 0) {
-        throw new AppError("Material product was not found in products table", 400, {
-          productionOrderId,
-          productId: resolvedProductId,
-          productName: material.product_name,
-        });
-      }
-
-      throw new AppError("Insufficient stock to complete production", 409, {
-        productionOrderId,
-        productId: resolvedProductId,
-        productName: material.product_name,
-        requestedQuantity: quantityToDeduct,
-        availableStock: toNumber(productResult.rows[0]?.stock_quantity ?? 0),
-      });
-    }
-
-    await client.query(
-      `
-        INSERT INTO public.product_stock_movements (
-          product_id,
-          movement_type,
-          quantity,
-          unit,
-          reason,
-          reference_type,
-          reference_id
-        )
-        VALUES ($1, 'saida', $2, $3, $4, 'production_order', $5);
-      `,
-      [
-        resolvedProductId,
-        quantityToDeduct,
-        material.unit,
-        "Automatic outbound movement from production completion",
-        productionOrderId,
-      ],
-    );
-  }
 }
 
 async function ensureProductionExistsForUpdate(client: PoolClient, productionId: string): Promise<boolean> {
@@ -1423,7 +1154,6 @@ async function complete(id: string): Promise<Production | undefined> {
     let persistedApprovalStatus: ProductionStatus = normalizedCurrentStatus;
 
     if (!isAlreadyApproved) {
-      await deductMaterialsFromStock(client, id);
       persistedApprovalStatus = await updateProductionAsApproved(client, id);
     }
 
@@ -1515,18 +1245,14 @@ async function advanceStatus(
       });
     }
 
-    const shouldDeductStock =
+    const shouldMarkCompleted =
       hasApprovalKeyword(stage.name) &&
       !hasApprovalKeyword(currentProduction.production_status) &&
       !Boolean(currentProduction.completed_at);
 
-    if (shouldDeductStock) {
-      await deductMaterialsFromStock(client, id);
-    }
-
     await createStatusAssignment(client, id, input, stage);
 
-    if (shouldDeductStock) {
+    if (shouldMarkCompleted) {
       await client.query(
         `
           UPDATE public.production_orders

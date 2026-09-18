@@ -234,41 +234,37 @@ async function getSummary(): Promise<LogisticsSummary> {
 async function getActiveProductionsMaterialConsumption(
   query: LogisticsDateFilterQueryInput,
 ): Promise<ActiveProductionMaterialConsumptionResponse> {
-  const whereClauses: string[] = [
-    "psm.movement_type = 'saida'",
-    "psm.reference_id IS NOT NULL",
-    "(psm.reference_type = 'production' OR psm.reference_type = 'production_order')",
-    activeProductionPredicateSql("po.production_status"),
-  ];
+  const whereClauses: string[] = [activeProductionPredicateSql("po.production_status")];
   const params: string[] = [];
 
   if (query.startDate) {
     params.push(query.startDate);
-    whereClauses.push(`psm.created_at >= $${params.length}::date`);
+    whereClauses.push(`po.created_at >= $${params.length}::date`);
   }
 
   if (query.endDate) {
     params.push(query.endDate);
-    whereClauses.push(`psm.created_at < ($${params.length}::date + INTERVAL '1 day')`);
+    whereClauses.push(`po.created_at < ($${params.length}::date + INTERVAL '1 day')`);
   }
 
   const whereSql = `WHERE ${whereClauses.join(" AND ")}`;
 
+  // Materials planned/used in the productions that are still in progress (no stock ledger involved).
   const result = await pool.query<ActiveMaterialConsumptionRow>(
     `
       SELECT
-        psm.product_id,
-        COALESCE(NULLIF(BTRIM(p.name), ''), psm.product_id) AS product_name,
-        COALESCE(NULLIF(BTRIM(MAX(psm.unit)), ''), '') AS unit,
-        COALESCE(SUM(psm.quantity), 0) AS total_quantity_used,
-        COUNT(DISTINCT psm.reference_id) AS active_productions_count
-      FROM public.product_stock_movements psm
+        COALESCE(pom.product_id::text, '') AS product_id,
+        COALESCE(NULLIF(BTRIM(pom.product_name), ''), COALESCE(pom.product_id::text, '')) AS product_name,
+        COALESCE(NULLIF(BTRIM(MAX(pom.unit)), ''), '') AS unit,
+        COALESCE(SUM(pom.quantity), 0) AS total_quantity_used,
+        COUNT(DISTINCT po.id) AS active_productions_count
+      FROM public.production_order_materials pom
       INNER JOIN public.production_orders po
-        ON po.id::text = psm.reference_id
-      LEFT JOIN public.products p
-        ON p.id::text = psm.product_id
+        ON po.id = pom.production_order_id
       ${whereSql}
-      GROUP BY psm.product_id, COALESCE(NULLIF(BTRIM(p.name), ''), psm.product_id)
+      GROUP BY
+        COALESCE(pom.product_id::text, ''),
+        COALESCE(NULLIF(BTRIM(pom.product_name), ''), COALESCE(pom.product_id::text, ''))
       ORDER BY total_quantity_used DESC, product_name ASC;
     `,
     params,
