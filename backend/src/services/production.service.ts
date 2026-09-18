@@ -66,8 +66,12 @@ async function setProductionStatuses(id: string, payload: SetProductionStatusesI
   return production;
 }
 
-async function advanceProductionStatus(id: string, payload: AdvanceProductionStatusInput): Promise<Production> {
-  const production = await productionRepository.advanceStatus(id, payload);
+async function advanceProductionStatus(
+  id: string,
+  payload: AdvanceProductionStatusInput,
+  options: { allowApproval?: boolean } = {},
+): Promise<Production> {
+  const production = await productionRepository.advanceStatus(id, payload, options);
 
   if (!production) {
     throw new AppError("Production not found", 404, { productionId: id });
@@ -152,7 +156,30 @@ async function getCostReport(productionId: string): Promise<ProductionCostReport
   };
 }
 
+/** Employees must never receive costs or prices. */
+function hideCosts(production: Production): Production {
+  return {
+    ...production,
+    initialCost: 0,
+    materials: production.materials.map((material) => ({ ...material, unitPrice: 0 })),
+  };
+}
+
+/** Returns the production only if it belongs to one of the employee's teams; otherwise throws 403. */
+async function getProductionAssignedToEmployee(productionId: string, employeeId: string): Promise<Production> {
+  const assigned = await productionRepository.findAll({ employeeId });
+  const production = assigned.find((item) => item.id === productionId);
+
+  if (!production) {
+    throw new AppError("Production is not assigned to your teams", 403, { productionId });
+  }
+
+  return production;
+}
+
 export const productionService = {
+  hideCosts,
+  getProductionAssignedToEmployee,
   listExpenses,
   addExpense,
   deleteExpense,

@@ -1457,7 +1457,12 @@ function hasApprovalKeyword(statusName: string): boolean {
   );
 }
 
-async function advanceStatus(id: string, input: AdvanceProductionStatusInput): Promise<Production | undefined> {
+async function advanceStatus(
+  id: string,
+  input: AdvanceProductionStatusInput,
+  options: { allowApproval?: boolean } = {},
+): Promise<Production | undefined> {
+  const { allowApproval = true } = options;
   const client = await pool.connect();
 
   try {
@@ -1503,6 +1508,12 @@ async function advanceStatus(id: string, input: AdvanceProductionStatusInput): P
 
     const currentProduction = currentResult.rows[0];
     const stage = await resolveStatusStage(client, input);
+
+    if (!allowApproval && hasApprovalKeyword(stage.name)) {
+      throw new AppError("Only admin and gerente can move a production to the approval or delivery stage", 403, {
+        stageName: stage.name,
+      });
+    }
 
     const shouldDeductStock =
       hasApprovalKeyword(stage.name) &&

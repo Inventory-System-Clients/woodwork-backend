@@ -13,14 +13,7 @@ const list = asyncHandler(async (req: Request, res: Response) => {
   const productions = await productionService.listProductions(employeeId, query.active ?? false);
 
   if (req.authUser?.role === "funcionario") {
-    // Employees must not see costs.
-    res.status(200).json({
-      data: productions.map((production) => ({
-        ...production,
-        initialCost: 0,
-        materials: production.materials.map((material) => ({ ...material, unitPrice: 0 })),
-      })),
-    });
+    res.status(200).json({ data: productions.map(productionService.hideCosts) });
     return;
   }
 
@@ -43,6 +36,21 @@ const complete = asyncHandler(async (req: Request, res: Response) => {
 });
 
 const advanceStatus = asyncHandler(async (req: Request, res: Response) => {
+  if (req.authUser?.role === "funcionario") {
+    // Employees advance stages only on their own teams' productions, always as that team, and cannot approve.
+    const assigned = await productionService.getProductionAssignedToEmployee(req.params.id, req.authUser.id);
+    const payload = assigned.installationTeamId
+      ? { ...req.body, teamId: assigned.installationTeamId }
+      : req.body;
+
+    const production = await productionService.advanceProductionStatus(req.params.id, payload, {
+      allowApproval: false,
+    });
+
+    res.status(200).json({ data: productionService.hideCosts(production) });
+    return;
+  }
+
   const production = await productionService.advanceProductionStatus(req.params.id, req.body);
   res.status(200).json({ data: production });
 });

@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { productionService } from "../services/production.service";
 import { productionShareService } from "../services/production-share.service";
 import { asyncHandler } from "../utils/async-handler";
 
@@ -69,6 +70,10 @@ const uploadImages = asyncHandler(async (req: Request, res: Response) => {
     return;
   }
 
+  if (req.authUser?.role === "funcionario") {
+    await productionService.getProductionAssignedToEmployee(productionId, authUserId);
+  }
+
   const images = await productionShareService.uploadProductionImages(productionId, authUserId, files);
 
   console.info("[production-share][controller][uploadImages] Success", {
@@ -81,6 +86,10 @@ const uploadImages = asyncHandler(async (req: Request, res: Response) => {
 
 const listImages = asyncHandler(async (req: Request, res: Response) => {
   const productionId = req.params.id;
+
+  if (req.authUser?.role === "funcionario") {
+    await productionService.getProductionAssignedToEmployee(productionId, req.authUser.id);
+  }
 
   const images = await productionShareService.listProductionImages(productionId);
   res.status(200).json({ data: images });

@@ -34,19 +34,19 @@ productionRoutes.get("/", requireAuth, productionController.list);
 productionRoutes.get(
   "/status-options",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin", "gerente", "funcionario"),
   productionController.listStatusOptions,
 );
 productionRoutes.get(
   "/statuses/options",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin", "gerente", "funcionario"),
   productionController.listStatusOptions,
 );
 productionRoutes.get(
   "/stages/options",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin", "gerente", "funcionario"),
   productionController.listStatusOptions,
 );
 productionRoutes.post(
@@ -59,7 +59,7 @@ productionRoutes.post(
 productionRoutes.patch(
   "/:id/advance-status",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin", "gerente", "funcionario"),
   validateBody(advanceProductionStatusSchema),
   productionController.advanceStatus,
 );
@@ -142,13 +142,13 @@ productionRoutes.post(
 productionRoutes.get(
   "/:id/images",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin", "gerente", "funcionario"),
   productionShareController.listImages,
 );
 productionRoutes.post(
   "/:id/images",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin", "gerente", "funcionario"),
   productionImagesUpload.array("images", 10),
   productionShareController.uploadImages,
 );
