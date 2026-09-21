@@ -7,6 +7,7 @@ import {
   ProjectListItem,
   UpdateProjectInput,
 } from "../models/project.model";
+import { employeeRepository } from "../repositories/employee.repository";
 import { projectRepository } from "../repositories/project.repository";
 import { AppError } from "../utils/app-error";
 import { workHoursService } from "./work-hours.service";
@@ -53,6 +54,8 @@ async function getDetail(id: string): Promise<ProjectDetail> {
     clientName: project.clientName,
     deadline: project.deadline,
     status: project.status,
+    lastUpdateNote: project.lastUpdateNote,
+    lastUpdateAt: project.lastUpdateAt,
     totals: project.totals,
     totalMinutes: project.totalMinutes,
     hoursByEmployee,
@@ -77,7 +80,48 @@ async function updateProject(id: string, input: UpdateProjectInput): Promise<Pro
 
 async function addCost(projectId: string, input: CreateProjectCostInput): Promise<ProjectCost> {
   await requireProject(projectId);
-  return projectRepository.createCost(projectId, input);
+
+  const base = {
+    supplier: input.supplier?.trim() || null,
+    isPaid: input.isPaid,
+    paidAt: input.paidAt ?? null,
+  };
+
+  if (!input.isCommission) {
+    return projectRepository.createCost(projectId, {
+      ...base,
+      description: input.description ?? "",
+      amount: input.amount ?? 0,
+      isCommission: false,
+      commissionEmployeeId: null,
+      commissionPercent: null,
+    });
+  }
+
+  const employee = await employeeRepository.findById(input.commissionEmployeeId ?? "");
+
+  if (!employee) {
+    throw new AppError("Employee not found", 400, { employeeId: input.commissionEmployeeId });
+  }
+
+  let amount = input.amount ?? 0;
+  let commissionPercent: number | null = null;
+
+  if (input.commissionMode === "percent") {
+    // Percentage of everything else already launched in the project (commissions excluded).
+    const costsBase = await projectRepository.sumNonCommissionCosts(projectId);
+    commissionPercent = input.commissionPercent ?? 0;
+    amount = Math.round(costsBase * commissionPercent) / 100;
+  }
+
+  return projectRepository.createCost(projectId, {
+    ...base,
+    description: input.description || `Comissão - ${employee.name}`,
+    amount,
+    isCommission: true,
+    commissionEmployeeId: employee.id,
+    commissionPercent,
+  });
 }
 
 async function setCostPaid(

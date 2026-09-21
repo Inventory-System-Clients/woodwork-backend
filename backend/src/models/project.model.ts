@@ -23,18 +23,50 @@ export const updateProjectSchema = z
     clientName: z.string().trim().min(1).max(200).optional(),
     deadline: dateOnlySchema.nullable().optional(),
     status: projectStatusSchema.optional(),
+    lastUpdateNote: z.string().trim().max(2000).nullable().optional(),
   })
   .refine((payload) => Object.keys(payload).length > 0, {
     message: "At least one field must be provided",
   });
 
-export const createProjectCostSchema = z.object({
-  description: z.string().trim().min(1, "description is required").max(255),
-  amount: z.coerce.number().nonnegative("amount cannot be negative"),
-  supplier: z.string().trim().max(160).optional().nullable(),
-  isPaid: z.coerce.boolean().default(false),
-  paidAt: dateOnlySchema.optional().nullable(),
-});
+export const createProjectCostSchema = z
+  .object({
+    description: z.string().trim().max(255).optional(),
+    amount: z.coerce.number().nonnegative("amount cannot be negative").optional(),
+    supplier: z.string().trim().max(160).optional().nullable(),
+    isPaid: z.coerce.boolean().default(false),
+    paidAt: dateOnlySchema.optional().nullable(),
+    // Commission: paid to an employee, as a percentage of the project's other costs or as a fixed value.
+    isCommission: z.coerce.boolean().default(false),
+    commissionMode: z.enum(["percent", "value"]).optional(),
+    commissionPercent: z.coerce.number().gt(0, "commissionPercent must be greater than zero").max(100).optional(),
+    commissionEmployeeId: z.string().trim().min(1).optional(),
+  })
+  .superRefine((cost, ctx) => {
+    if (!cost.isCommission) {
+      if (!cost.description) {
+        ctx.addIssue({ code: "custom", path: ["description"], message: "description is required" });
+      }
+
+      if (cost.amount === undefined) {
+        ctx.addIssue({ code: "custom", path: ["amount"], message: "amount is required" });
+      }
+
+      return;
+    }
+
+    if (!cost.commissionEmployeeId) {
+      ctx.addIssue({ code: "custom", path: ["commissionEmployeeId"], message: "commissionEmployeeId is required" });
+    }
+
+    if (cost.commissionMode === "percent") {
+      if (cost.commissionPercent === undefined) {
+        ctx.addIssue({ code: "custom", path: ["commissionPercent"], message: "commissionPercent is required" });
+      }
+    } else if (!cost.amount || cost.amount <= 0) {
+      ctx.addIssue({ code: "custom", path: ["amount"], message: "amount must be greater than zero" });
+    }
+  });
 
 export const payProjectCostSchema = z.object({
   paidAt: dateOnlySchema.optional(),
@@ -55,6 +87,22 @@ export interface ProjectCost {
   isPaid: boolean;
   paidAt: string | null;
   createdAt: string;
+  isCommission: boolean;
+  commissionEmployeeId: string | null;
+  commissionEmployeeName: string | null;
+  commissionPercent: number | null;
+}
+
+/** Cost ready to be stored: commission amounts already resolved. */
+export interface NewProjectCost {
+  description: string;
+  amount: number;
+  supplier: string | null;
+  isPaid: boolean;
+  paidAt: string | null;
+  isCommission: boolean;
+  commissionEmployeeId: string | null;
+  commissionPercent: number | null;
 }
 
 export interface ProjectHoursByEmployee {
@@ -79,6 +127,8 @@ export interface ProjectDetail {
   clientName: string;
   deadline: string | null;
   status: ProjectStatus;
+  lastUpdateNote: string | null;
+  lastUpdateAt: string | null;
   totals: ProjectTotals;
   totalMinutes: number;
   hoursByEmployee: ProjectHoursByEmployee[];

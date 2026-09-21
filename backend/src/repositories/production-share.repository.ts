@@ -31,6 +31,9 @@ interface PublicProductionRow {
   delivery_date: string | Date | null;
   installation_team: string | null;
   updated_at: string | Date;
+  last_update_note: string | null;
+  last_update_at: string | Date | null;
+  project_status: string | null;
   product_id: string | null;
   product_name: string | null;
   quantity: string | number | null;
@@ -509,7 +512,9 @@ function mapProductionRows(rows: PublicProductionRow[]): PublicProductionView | 
     installationTeam: firstRow.installation_team,
     materials: [],
     images: [],
-    observations: firstRow.description,
+    observations: firstRow.last_update_note ?? null,
+    projectStatus: firstRow.project_status ?? null,
+    lastUpdateAt: toDateString(firstRow.last_update_at ?? null),
     updatedAt: toDateString(firstRow.updated_at) ?? new Date().toISOString(),
   };
 
@@ -623,6 +628,9 @@ async function findPublicProductionByTokenHash(tokenHash: string): Promise<Publi
           po.delivery_date,
           po.installation_team,
           po.updated_at,
+          po.last_update_note,
+          po.last_update_at,
+          po.project_status,
           ${productIdSelect},
           pom.product_name,
           pom.quantity,

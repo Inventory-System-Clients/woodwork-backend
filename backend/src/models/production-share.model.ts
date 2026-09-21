@@ -57,5 +57,8 @@ export interface PublicProductionView {
   materials: PublicProductionMaterial[];
   images: PublicProductionImage[];
   observations: string | null;
+  /** Project status (Em andamento / Pausado / Finalizado). */
+  projectStatus: string | null;
+  lastUpdateAt: string | null;
   updatedAt: string;
 }

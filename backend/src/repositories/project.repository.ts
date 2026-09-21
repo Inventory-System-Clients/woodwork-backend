@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { pool } from "../database/postgres";
 import {
   ACTIVE_PROJECT_STATUS,
-  CreateProjectCostInput,
   CreateProjectInput,
+  NewProjectCost,
   ProjectCost,
   ProjectHoursByEmployee,
   ProjectListItem,
@@ -23,6 +23,8 @@ interface ProjectRow {
   total_paid: string | number | null;
   total_to_pay: string | number | null;
   total_minutes: string | number | null;
+  last_update_note: string | null;
+  last_update_at: string | Date | null;
 }
 
 interface CostRow {
@@ -34,6 +36,10 @@ interface CostRow {
   is_paid: boolean;
   paid_at: string | null;
   created_at: string | Date;
+  is_commission: boolean;
+  commission_employee_id: string | null;
+  commission_employee_name: string | null;
+  commission_percent: string | number | null;
 }
 
 const COST_COLUMNS = `
@@ -44,7 +50,11 @@ const COST_COLUMNS = `
   supplier,
   is_paid,
   TO_CHAR(paid_at, 'YYYY-MM-DD') AS paid_at,
-  created_at
+  created_at,
+  is_commission,
+  commission_employee_id,
+  (SELECT e.name FROM public.employees e WHERE e.id::text = public.production_expenses.commission_employee_id) AS commission_employee_name,
+  commission_percent
 `;
 
 const PROJECT_SELECT = `
@@ -54,6 +64,8 @@ const PROJECT_SELECT = `
     po.client_name,
     TO_CHAR(po.delivery_date, 'YYYY-MM-DD') AS deadline,
     po.project_status AS status,
+    po.last_update_note,
+    po.last_update_at,
     COALESCE(c.total_cost, 0) AS total_cost,
     COALESCE(c.total_paid, 0) AS total_paid,
     COALESCE(c.total_to_pay, 0) AS total_to_pay,
@@ -104,6 +116,10 @@ function mapCost(row: CostRow): ProjectCost {
     isPaid: row.is_paid,
     paidAt: row.paid_at,
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    isCommission: row.is_commission,
+    commissionEmployeeId: row.commission_employee_id,
+    commissionEmployeeName: row.commission_employee_name,
+    commissionPercent: row.commission_percent === null ? null : toNumber(row.commission_percent),
   };
 }
 
@@ -114,6 +130,9 @@ function mapProject(row: ProjectRow) {
     clientName: row.client_name,
     deadline: row.deadline,
     status: row.status as ProjectStatus,
+    lastUpdateNote: row.last_update_note,
+    lastUpdateAt:
+      row.last_update_at instanceof Date ? row.last_update_at.toISOString() : row.last_update_at,
     totals: {
       totalPaid: toNumber(row.total_paid),
       totalToPay: toNumber(row.total_to_pay),
@@ -218,6 +237,11 @@ async function update(id: string, input: UpdateProjectInput): Promise<boolean> {
   if (input.deadline !== undefined) push("delivery_date", input.deadline);
   if (input.status !== undefined) push("project_status", input.status);
 
+  if (input.lastUpdateNote !== undefined) {
+    push("last_update_note", input.lastUpdateNote || null);
+    sets.push(input.lastUpdateNote ? "last_update_at = NOW()" : "last_update_at = NULL");
+  }
+
   values.push(id);
 
   try {
@@ -250,13 +274,15 @@ async function listCosts(projectId: string): Promise<ProjectCost[]> {
   }
 }
 
-async function createCost(projectId: string, input: CreateProjectCostInput): Promise<ProjectCost> {
+async function createCost(projectId: string, input: NewProjectCost): Promise<ProjectCost> {
   try {
     const result = await pool.query<CostRow>(
       `
         INSERT INTO public.production_expenses
-          (id, production_id, description, amount, supplier, is_paid, paid_at)
-        VALUES ($1, $2, $3, $4, $5, $6::boolean, CASE WHEN $6::boolean THEN COALESCE($7::date, CURRENT_DATE) ELSE NULL END)
+          (id, production_id, description, amount, supplier, is_paid, paid_at,
+           is_commission, commission_employee_id, commission_percent)
+        VALUES ($1, $2, $3, $4, $5, $6::boolean, CASE WHEN $6::boolean THEN COALESCE($7::date, CURRENT_DATE) ELSE NULL END,
+                $8::boolean, $9, $10)
         RETURNING ${COST_COLUMNS};
       `,
       [
@@ -264,9 +290,12 @@ async function createCost(projectId: string, input: CreateProjectCostInput): Pro
         projectId,
         input.description,
         input.amount,
-        input.supplier?.trim() || null,
+        input.supplier,
         input.isPaid,
-        input.paidAt ?? null,
+        input.paidAt,
+        input.isCommission,
+        input.commissionEmployeeId,
+        input.commissionPercent,
       ],
     );
 
@@ -295,6 +324,20 @@ async function setCostPaid(
     );
 
     return result.rows[0] ? mapCost(result.rows[0]) : undefined;
+  } catch (error) {
+    return wrapSchemaError(error);
+  }
+}
+
+/** Sum of the project's costs that are not commissions (base for percentage commissions). */
+async function sumNonCommissionCosts(projectId: string): Promise<number> {
+  try {
+    const result = await pool.query<{ total: string | null }>(
+      "SELECT SUM(amount) AS total FROM public.production_expenses WHERE production_id = $1 AND NOT is_commission;",
+      [projectId],
+    );
+
+    return toNumber(result.rows[0]?.total);
   } catch (error) {
     return wrapSchemaError(error);
   }
@@ -403,6 +446,7 @@ export const projectRepository = {
   createCost,
   setCostPaid,
   removeCost,
+  sumNonCommissionCosts,
   hoursByEmployee,
   getDashboardTotals,
   sumMinutesInRange,
