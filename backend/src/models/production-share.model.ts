@@ -46,6 +46,13 @@ export interface PublicProductionImageFile {
   data: Buffer;
 }
 
+/** Registered project cost shown to the client (commissions are never included). */
+export interface PublicProductionItem {
+  id: string;
+  name: string;
+  amount: number;
+}
+
 export interface PublicProductionView {
   id: string;
   clientName: string;
@@ -55,6 +62,7 @@ export interface PublicProductionView {
   deliveryDate: string | null;
   installationTeam: string | null;
   materials: PublicProductionMaterial[];
+  items: PublicProductionItem[];
   images: PublicProductionImage[];
   observations: string | null;
   /** Project status (Em andamento / Pausado / Finalizado). */

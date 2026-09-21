@@ -6,6 +6,7 @@ import {
   ProductionImageUploadInput,
   PublicProductionImage,
   PublicProductionImageFile,
+  PublicProductionItem,
   PublicProductionMaterial,
   PublicProductionView,
 } from "../models/production-share.model";
@@ -511,6 +512,7 @@ function mapProductionRows(rows: PublicProductionRow[]): PublicProductionView | 
     deliveryDate: toDateString(firstRow.delivery_date),
     installationTeam: firstRow.installation_team,
     materials: [],
+    items: [],
     images: [],
     observations: firstRow.last_update_note ?? null,
     projectStatus: firstRow.project_status ?? null,
@@ -607,6 +609,29 @@ async function findPublicStatusesByProductionId(productionId: string): Promise<P
   }
 }
 
+/** Registered costs of the project, without commissions. */
+async function findPublicItemsByProductionId(productionId: string): Promise<PublicProductionItem[]> {
+  try {
+    const result = await pool.query<{ id: string; description: string; amount: string | number }>(
+      `
+        SELECT id, description, amount
+        FROM public.production_expenses
+        WHERE production_id = $1 AND NOT is_commission
+        ORDER BY created_at ASC;
+      `,
+      [productionId],
+    );
+
+    return result.rows.map((row) => ({ id: row.id, name: row.description, amount: toNumber(row.amount) }));
+  } catch (error) {
+    if ((error as { code?: string }).code === "42P01") {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
 async function findPublicProductionByTokenHash(tokenHash: string): Promise<PublicProductionView | undefined> {
   try {
     const canUseProductId = await hasProductionOrderMaterialsProductIdColumn();
@@ -676,6 +701,7 @@ async function findPublicProductionByTokenHash(tokenHash: string): Promise<Publi
           .join(", ");
       }
       mappedProduction.images = await findPublicImagesByProductionId(mappedProduction.id);
+      mappedProduction.items = await findPublicItemsByProductionId(mappedProduction.id);
     }
 
     console.info("[production-share][repository][findPublicByTokenHash] Shared production loaded", {
