@@ -137,6 +137,10 @@ export interface ProjectListItem {
   deadline: string | null;
   status: ProjectStatus;
   totalCost?: number;
+  /** Gross value charged to the client (final value). */
+  grossValue?: number;
+  /** Gross value - total cost (commissions included). */
+  netProfit?: number;
 }
 
 export interface ProjectDetail {
@@ -169,6 +173,8 @@ export interface ProjectDashboard {
   totals: ProjectTotals;
   hoursMonthMinutes: number;
   monthLabel: string;
+  /** Sum of the net profit of finished projects. */
+  totalProfit: number;
   topProjects: { id: string; name: string; clientName: string; totalCost: number; totalMinutes: number }[];
   /** Last 12 months, oldest first. */
   monthly: ProjectMonthlyPoint[];

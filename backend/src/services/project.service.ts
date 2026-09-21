@@ -35,6 +35,8 @@ async function listForAdmin(): Promise<ProjectListItem[]> {
     deadline: project.deadline,
     status: project.status,
     totalCost: project.totals.totalCost,
+    grossValue: project.grossValue,
+    netProfit: project.netProfit,
   }));
 }
 
@@ -208,6 +210,10 @@ async function getDashboard(): Promise<ProjectDashboard> {
     totals: { totalPaid: totals.totalPaid, totalToPay: totals.totalToPay, totalCost: totals.totalCost },
     hoursMonthMinutes,
     monthLabel: today.slice(0, 7),
+    totalProfit:
+      Math.round(
+        projects.filter((project) => project.status === "Finalizado").reduce((sum, project) => sum + project.netProfit, 0) * 100,
+      ) / 100,
     topProjects,
     monthly: months.map<ProjectMonthlyPoint>(
       (month) => monthlyRaw.get(month) ?? { month, expenses: 0, commissions: 0, profit: 0, peakProjects: 0 },

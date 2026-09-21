@@ -11,7 +11,8 @@ import { ReplaceDayEntry, workHoursRepository } from "../repositories/work-hours
 import { AppError } from "../utils/app-error";
 
 const BUSINESS_TIME_ZONE = "America/Sao_Paulo";
-const MAX_MINUTES_PER_DAY = 24 * 60;
+// Total across every project and activity logged by the employee on the same day.
+const MAX_MINUTES_PER_DAY = 8 * 60;
 const DEFAULT_REPORT_DAYS = 7;
 const MAX_REPORT_DAYS = 366;
 
@@ -80,7 +81,7 @@ async function setDay(employeeId: string, payload: SetDayWorkHoursInput): Promis
   const totalMinutes = sumMinutes(entries);
 
   if (totalMinutes > MAX_MINUTES_PER_DAY) {
-    throw new AppError("Total hours in a day cannot exceed 24 hours", 400, { totalMinutes });
+    throw new AppError("Total hours in a day cannot exceed 8 hours", 400, { totalMinutes });
   }
 
   // Only projects still in progress accept new hours, but lines kept as-is on a finished project stay valid.

@@ -23,6 +23,7 @@ interface ProjectRow {
   total_cost: string | number | null;
   total_paid: string | number | null;
   total_to_pay: string | number | null;
+  total_items: string | number | null;
   total_minutes: string | number | null;
   last_update_note: string | null;
   last_update_at: string | Date | null;
@@ -81,6 +82,7 @@ const PROJECT_SELECT = `
     COALESCE(c.total_cost, 0) AS total_cost,
     COALESCE(c.total_paid, 0) AS total_paid,
     COALESCE(c.total_to_pay, 0) AS total_to_pay,
+    COALESCE(c.total_items, 0) AS total_items,
     COALESCE(h.total_minutes, 0) AS total_minutes
   FROM public.production_orders po
   LEFT JOIN (
@@ -88,7 +90,8 @@ const PROJECT_SELECT = `
       production_id,
       SUM(amount) AS total_cost,
       SUM(amount) FILTER (WHERE is_paid) AS total_paid,
-      SUM(amount) FILTER (WHERE NOT is_paid) AS total_to_pay
+      SUM(amount) FILTER (WHERE NOT is_paid) AS total_to_pay,
+      SUM(amount) FILTER (WHERE NOT is_commission) AS total_items
     FROM public.production_expenses
     GROUP BY production_id
   ) c ON c.production_id = po.id::text
@@ -136,7 +139,17 @@ function mapCost(row: CostRow): ProjectCost {
 }
 
 function mapProject(row: ProjectRow) {
+  const totalCost = toNumber(row.total_cost);
+  const items = toNumber(row.total_items);
+  // Gross value: the registered final value, otherwise items + labor - discount (same rule as the delivery PDF).
+  const grossValue =
+    row.final_value === null
+      ? Math.max(0, items + toNumber(row.labor_value) - toNumber(row.discount_value))
+      : toNumber(row.final_value);
+
   return {
+    grossValue,
+    netProfit: Math.round((grossValue - totalCost) * 100) / 100,
     id: row.id,
     name: row.name,
     clientName: row.client_name,
