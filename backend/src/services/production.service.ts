@@ -6,7 +6,10 @@ import {
   ProductionExpense,
   ProductionExpenseInput,
   ProductionStageOption,
+  SetProductionMaterialsInput,
   SetProductionStatusesInput,
+  UpdateProductionExpenseInput,
+  UpdateProductionInput,
 } from "../models/production.model";
 import { employeeRepository } from "../repositories/employee.repository";
 import { productionExpenseRepository } from "../repositories/production-expense.repository";
@@ -27,6 +30,52 @@ async function listProductions(employeeId?: string, activeOnly = false): Promise
     employeeId,
     activeOnly,
   });
+}
+
+async function updateProduction(id: string, payload: UpdateProductionInput): Promise<Production> {
+  let installationTeam: string | undefined;
+
+  if (payload.installationTeamId) {
+    const team = await teamRepository.findById(payload.installationTeamId);
+
+    if (!team) {
+      throw new AppError("Team not found", 400);
+    }
+
+    installationTeam = team.name;
+  }
+
+  const updated = await productionRepository.updateDetails(id, { ...payload, installationTeam });
+
+  if (!updated) {
+    throw new AppError("Production not found", 404, { productionId: id });
+  }
+
+  return ensureProductionExists(id);
+}
+
+async function setMaterials(id: string, payload: SetProductionMaterialsInput): Promise<Production> {
+  const updated = await productionRepository.replaceMaterials(id, payload.materials);
+
+  if (!updated) {
+    throw new AppError("Production not found", 404, { productionId: id });
+  }
+
+  return ensureProductionExists(id);
+}
+
+async function updateExpense(
+  productionId: string,
+  expenseId: string,
+  payload: UpdateProductionExpenseInput,
+): Promise<ProductionExpense> {
+  const expense = await productionExpenseRepository.update(productionId, expenseId, payload);
+
+  if (!expense) {
+    throw new AppError("Expense not found", 404, { productionId, expenseId });
+  }
+
+  return expense;
 }
 
 async function createProduction(payload: CreateProductionInput): Promise<Production> {
@@ -135,6 +184,9 @@ async function getCostReport(productionId: string): Promise<ProductionCostReport
   const materialsTotal = roundMoney(materials.reduce((sum, material) => sum + material.subtotal, 0));
   const expensesTotal = roundMoney(expenses.reduce((sum, expense) => sum + expense.amount, 0));
   const totalSpent = roundMoney(materialsTotal + expensesTotal);
+  const { profitPercent, commissionPercent } = await productionRepository.getFinancialPercents(productionId);
+  const profitValue = roundMoney((totalSpent * profitPercent) / 100);
+  const commissionValue = roundMoney((profitValue * commissionPercent) / 100);
 
   return {
     production: {
@@ -153,6 +205,12 @@ async function getCostReport(productionId: string): Promise<ProductionCostReport
     expensesTotal,
     totalSpent,
     balance: roundMoney(production.initialCost - totalSpent),
+    profitPercent,
+    commissionPercent,
+    profitValue,
+    commissionValue,
+    netProfit: roundMoney(profitValue - commissionValue),
+    salePrice: roundMoney(totalSpent + profitValue),
   };
 }
 
@@ -178,6 +236,9 @@ async function getProductionAssignedToEmployee(productionId: string, employeeId:
 }
 
 export const productionService = {
+  updateProduction,
+  setMaterials,
+  updateExpense,
   hideCosts,
   getProductionAssignedToEmployee,
   listExpenses,

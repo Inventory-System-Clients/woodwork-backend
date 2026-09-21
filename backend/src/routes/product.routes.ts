@@ -8,7 +8,7 @@ import { createProductSchema, updateProductSchema } from "../models/product.mode
 const productRoutes = Router();
 
 productRoutes.use(requireAuth);
-productRoutes.use(authorizeRoles("admin", "gerente"));
+productRoutes.use(authorizeRoles("admin"));
 
 productRoutes.get("/", productController.list);
 productRoutes.get("/:id", productController.getById);

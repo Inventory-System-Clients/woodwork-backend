@@ -85,7 +85,23 @@ const getCostReport = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json({ data: report });
 });
 
+const update = asyncHandler(async (req: Request, res: Response) => {
+  res.status(200).json({ data: await productionService.updateProduction(req.params.id, req.body) });
+});
+
+const setMaterials = asyncHandler(async (req: Request, res: Response) => {
+  res.status(200).json({ data: await productionService.setMaterials(req.params.id, req.body) });
+});
+
+const updateExpense = asyncHandler(async (req: Request, res: Response) => {
+  const expense = await productionService.updateExpense(req.params.id, req.params.expenseId, req.body);
+  res.status(200).json({ data: expense });
+});
+
 export const productionController = {
+  update,
+  setMaterials,
+  updateExpense,
   listExpenses,
   addExpense,
   deleteExpense,

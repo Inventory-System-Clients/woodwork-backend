@@ -3,10 +3,11 @@ import {
   EmployeeWorkHoursReport,
   ListWorkHoursQueryInput,
   SetDayWorkHoursInput,
+  WorkHoursSummary,
 } from "../models/work-hours.model";
 import { employeeRepository } from "../repositories/employee.repository";
-import { productionRepository } from "../repositories/production.repository";
-import { workHoursRepository } from "../repositories/work-hours.repository";
+import { projectRepository } from "../repositories/project.repository";
+import { ReplaceDayEntry, workHoursRepository } from "../repositories/work-hours.repository";
 import { AppError } from "../utils/app-error";
 
 const BUSINESS_TIME_ZONE = "America/Sao_Paulo";
@@ -56,29 +57,47 @@ async function getDay(employeeId: string, requestedDate?: string): Promise<DayWo
 async function setDay(employeeId: string, payload: SetDayWorkHoursInput): Promise<DayWorkHours> {
   const { date } = resolveAllowedDate(payload.date);
 
-  if (payload.minutes === 0) {
-    await workHoursRepository.remove(employeeId, payload.productionId, date);
-    return getDay(employeeId, date);
+  // Merge repeated lines (same project or same activity) and drop empty ones.
+  const merged = new Map<string, ReplaceDayEntry>();
+
+  for (const entry of payload.entries) {
+    if (entry.minutes <= 0) {
+      continue;
+    }
+
+    const activity = entry.projectId ? null : (entry.activity ?? "").trim();
+    const key = entry.projectId ? `p:${entry.projectId}` : `a:${activity?.toLowerCase()}`;
+    const existing = merged.get(key);
+
+    if (existing) {
+      existing.minutes += entry.minutes;
+    } else {
+      merged.set(key, { productionId: entry.projectId ?? null, activity, minutes: entry.minutes });
+    }
   }
 
-  const productions = await productionRepository.findAll({ employeeId, activeOnly: true });
+  const entries = [...merged.values()];
+  const totalMinutes = sumMinutes(entries);
 
-  if (!productions.some((production) => production.id === payload.productionId)) {
-    throw new AppError("Production is not in progress or is not assigned to your teams", 403, {
-      productionId: payload.productionId,
-    });
+  if (totalMinutes > MAX_MINUTES_PER_DAY) {
+    throw new AppError("Total hours in a day cannot exceed 24 hours", 400, { totalMinutes });
   }
 
-  const day = await getDay(employeeId, date);
-  const otherMinutes = sumMinutes(day.entries.filter((entry) => entry.productionId !== payload.productionId));
+  // Only projects still in progress accept new hours, but lines kept as-is on a finished project stay valid.
+  const previous = await workHoursRepository.listByEmployeeAndRange(employeeId, date, date);
+  const previousProjectIds = new Set(previous.map((entry) => entry.productionId).filter(Boolean));
 
-  if (otherMinutes + payload.minutes > MAX_MINUTES_PER_DAY) {
-    throw new AppError("Total hours in a day cannot exceed 24 hours", 400, {
-      alreadyLoggedMinutes: otherMinutes,
-    });
+  for (const entry of entries) {
+    if (!entry.productionId || previousProjectIds.has(entry.productionId)) {
+      continue;
+    }
+
+    if (!(await projectRepository.isActive(entry.productionId))) {
+      throw new AppError("Project is not in progress", 400, { projectId: entry.productionId });
+    }
   }
 
-  await workHoursRepository.upsert(employeeId, payload.productionId, date, payload.minutes);
+  await workHoursRepository.replaceDay(employeeId, date, entries);
   return getDay(employeeId, date);
 }
 
@@ -108,7 +127,30 @@ async function getReportForEmployee(
   return { employeeId, from, to, totalMinutes: sumMinutes(entries), entries };
 }
 
+function currentMonthStart(today: string): string {
+  return `${today.slice(0, 8)}01`;
+}
+
+async function getSummary(query: ListWorkHoursQueryInput): Promise<WorkHoursSummary> {
+  const today = formatDateInBusinessZone(new Date());
+  const to = query.to ?? today;
+  const from = query.from ?? currentMonthStart(to);
+
+  if (from > to) {
+    throw new AppError("from must be earlier than or equal to to", 400);
+  }
+
+  if (shiftDate(from, MAX_REPORT_DAYS) < to) {
+    throw new AppError(`The period cannot exceed ${MAX_REPORT_DAYS} days`, 400);
+  }
+
+  const rows = await workHoursRepository.summarize(from, to);
+  return { from, to, totalMinutes: sumMinutes(rows), rows };
+}
+
 export const workHoursService = {
+  getSummary,
+  formatDateInBusinessZone,
   getDay,
   setDay,
   getReportForEmployee,

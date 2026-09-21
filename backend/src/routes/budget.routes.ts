@@ -8,7 +8,7 @@ import { createBudgetSchema, updateBudgetSchema } from "../models/budget.model";
 const budgetRoutes = Router();
 
 budgetRoutes.use(requireAuth);
-budgetRoutes.use(authorizeRoles("admin", "gerente"));
+budgetRoutes.use(authorizeRoles("admin"));
 
 budgetRoutes.get("/", budgetController.list);
 budgetRoutes.get("/expense-departments", budgetController.listExpenseDepartments);

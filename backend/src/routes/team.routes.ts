@@ -8,7 +8,7 @@ import { createTeamSchema, setTeamMembersSchema, updateTeamSchema } from "../mod
 const teamRoutes = Router();
 
 teamRoutes.use(requireAuth);
-teamRoutes.use(authorizeRoles("admin", "gerente"));
+teamRoutes.use(authorizeRoles("admin"));
 
 teamRoutes.get("/", teamController.list);
 teamRoutes.get("/:id", teamController.getById);

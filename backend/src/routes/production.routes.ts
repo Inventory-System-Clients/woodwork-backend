@@ -9,7 +9,10 @@ import {
   advanceProductionStatusSchema,
   createProductionSchema,
   productionExpenseSchema,
+  setProductionMaterialsSchema,
   setProductionStatusesSchema,
+  updateProductionExpenseSchema,
+  updateProductionSchema,
 } from "../models/production.model";
 import { AppError } from "../utils/app-error";
 
@@ -34,121 +37,142 @@ productionRoutes.get("/", requireAuth, productionController.list);
 productionRoutes.get(
   "/status-options",
   requireAuth,
-  authorizeRoles("admin", "gerente", "funcionario"),
+  authorizeRoles("admin", "funcionario"),
   productionController.listStatusOptions,
 );
 productionRoutes.get(
   "/statuses/options",
   requireAuth,
-  authorizeRoles("admin", "gerente", "funcionario"),
+  authorizeRoles("admin", "funcionario"),
   productionController.listStatusOptions,
 );
 productionRoutes.get(
   "/stages/options",
   requireAuth,
-  authorizeRoles("admin", "gerente", "funcionario"),
+  authorizeRoles("admin", "funcionario"),
   productionController.listStatusOptions,
 );
 productionRoutes.post(
   "/",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   validateBody(createProductionSchema),
   productionController.create,
 );
 productionRoutes.patch(
   "/:id/advance-status",
   requireAuth,
-  authorizeRoles("admin", "gerente", "funcionario"),
+  authorizeRoles("admin", "funcionario"),
   validateBody(advanceProductionStatusSchema),
   productionController.advanceStatus,
 );
 productionRoutes.put(
   "/:id/statuses",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   validateBody(setProductionStatusesSchema),
   productionController.setStatuses,
 );
 productionRoutes.patch(
   "/:id/statuses",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   validateBody(setProductionStatusesSchema),
   productionController.setStatuses,
 );
 productionRoutes.post(
   "/:id/statuses",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   validateBody(setProductionStatusesSchema),
   productionController.setStatuses,
 );
 productionRoutes.patch(
   "/:id/complete",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   productionController.complete,
 );
 productionRoutes.patch(
   "/:id/approve",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   productionController.complete,
 );
 productionRoutes.get(
   "/:id/expenses",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   productionController.listExpenses,
 );
 productionRoutes.post(
   "/:id/expenses",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   validateBody(productionExpenseSchema),
   productionController.addExpense,
+);
+productionRoutes.patch(
+  "/:id/expenses/:expenseId",
+  requireAuth,
+  authorizeRoles("admin"),
+  validateBody(updateProductionExpenseSchema),
+  productionController.updateExpense,
+);
+productionRoutes.patch(
+  "/:id",
+  requireAuth,
+  authorizeRoles("admin"),
+  validateBody(updateProductionSchema),
+  productionController.update,
+);
+productionRoutes.put(
+  "/:id/materials",
+  requireAuth,
+  authorizeRoles("admin"),
+  validateBody(setProductionMaterialsSchema),
+  productionController.setMaterials,
 );
 productionRoutes.delete(
   "/:id/expenses/:expenseId",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   productionController.deleteExpense,
 );
 productionRoutes.get(
   "/:id/cost-report",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   productionController.getCostReport,
 );
 productionRoutes.delete(
   "/:id",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   productionController.remove,
 );
 productionRoutes.post(
   "/:id/share-link",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   productionShareController.createShareLink,
 );
 productionRoutes.post(
   "/:id/share",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   productionShareController.createShareLink,
 );
 productionRoutes.get(
   "/:id/images",
   requireAuth,
-  authorizeRoles("admin", "gerente", "funcionario"),
+  authorizeRoles("admin", "funcionario"),
   productionShareController.listImages,
 );
 productionRoutes.post(
   "/:id/images",
   requireAuth,
-  authorizeRoles("admin", "gerente", "funcionario"),
+  authorizeRoles("admin", "funcionario"),
   productionImagesUpload.array("images", 10),
   productionShareController.uploadImages,
 );

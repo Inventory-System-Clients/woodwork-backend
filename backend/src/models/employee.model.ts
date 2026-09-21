@@ -9,7 +9,7 @@ const passwordSchema = z
   .min(6, "password must have at least 6 characters")
   .max(72, "password must have at most 72 characters");
 
-export const employeeRoleSchema = z.enum(["admin", "funcionario", "gerente"]);
+export const employeeRoleSchema = z.enum(["admin", "funcionario"]);
 export type EmployeeRole = z.infer<typeof employeeRoleSchema>;
 
 export interface Employee {

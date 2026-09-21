@@ -7,14 +7,38 @@ const dateOnlySchema = z
 
 export const workHoursDateSchema = dateOnlySchema;
 
+export const OTHER_ACTIVITY_SUGGESTIONS = [
+  "Limpeza",
+  "Organização",
+  "Manutenção",
+  "Reunião",
+  "Transporte",
+  "Recebimento de materiais",
+  "Administrativo",
+  "Outro",
+] as const;
+
+const minutesSchema = z.coerce
+  .number()
+  .int("minutes must be an integer")
+  .min(0, "minutes cannot be negative")
+  .max(1440, "minutes cannot exceed 24 hours");
+
+// Each line is either a project (projectId) or another activity (free text), never both.
+export const workHoursEntryInputSchema = z
+  .object({
+    projectId: z.string().trim().min(1).optional().nullable(),
+    activity: z.string().trim().min(1).max(160).optional().nullable(),
+    minutes: minutesSchema,
+  })
+  .refine((entry) => Boolean(entry.projectId) !== Boolean(entry.activity), {
+    message: "Each entry needs either projectId or activity",
+  });
+
+// Replaces everything the employee logged for the day.
 export const setDayWorkHoursSchema = z.object({
-  productionId: z.string().trim().min(1, "productionId is required"),
   date: dateOnlySchema.optional(),
-  minutes: z.coerce
-    .number()
-    .int("minutes must be an integer")
-    .min(0, "minutes cannot be negative")
-    .max(1440, "minutes cannot exceed 24 hours"),
+  entries: z.array(workHoursEntryInputSchema).max(50, "too many entries"),
 });
 
 export const listWorkHoursQuerySchema = z.object({
@@ -25,8 +49,9 @@ export const listWorkHoursQuerySchema = z.object({
 export interface WorkHoursEntry {
   id: string;
   employeeId: string;
-  productionId: string;
+  productionId: string | null;
   productionLabel: string | null;
+  activity: string | null;
   workDate: string;
   minutes: number;
 }
@@ -49,3 +74,22 @@ export interface EmployeeWorkHoursReport {
 
 export type SetDayWorkHoursInput = z.infer<typeof setDayWorkHoursSchema>;
 export type ListWorkHoursQueryInput = z.infer<typeof listWorkHoursQuerySchema>;
+
+
+export interface WorkHoursSummaryRow {
+  employeeId: string;
+  employeeName: string;
+  projectId: string | null;
+  label: string;
+  isActivity: boolean;
+  minutes: number;
+}
+
+export interface WorkHoursSummary {
+  from: string;
+  to: string;
+  totalMinutes: number;
+  rows: WorkHoursSummaryRow[];
+}
+
+export type WorkHoursEntryInput = z.infer<typeof workHoursEntryInputSchema>;

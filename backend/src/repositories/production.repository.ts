@@ -499,6 +499,10 @@ async function updateProductionStatus(
               THEN COALESCE(completed_at, NOW())
             ELSE NULL
           END,
+          project_status = CASE
+            WHEN $2::text = ANY(ARRAY['approved', 'delivered']) THEN 'Finalizado'
+            ELSE project_status
+          END,
           updated_at = NOW()
         WHERE id = $1;
       `,
@@ -1240,7 +1244,7 @@ async function advanceStatus(
     const stage = await resolveStatusStage(client, input);
 
     if (!allowApproval && hasApprovalKeyword(stage.name)) {
-      throw new AppError("Only admin and gerente can move a production to the approval or delivery stage", 403, {
+      throw new AppError("Only admin can move a production to the approval or delivery stage", 403, {
         stageName: stage.name,
       });
     }
@@ -1258,6 +1262,7 @@ async function advanceStatus(
           UPDATE public.production_orders
           SET
             completed_at = COALESCE(completed_at, NOW()),
+            project_status = 'Finalizado',
             updated_at = NOW()
           WHERE id::text = $1;
         `,
@@ -1397,7 +1402,133 @@ async function remove(id: string): Promise<boolean> {
   }
 }
 
+async function insertMaterials(
+  client: PoolClient,
+  productionId: string,
+  materials: CreateProductionInput["materials"],
+): Promise<void> {
+  const canUseProductId = await hasProductIdColumn(client);
+  const canUseUnitPrice = await hasUnitPriceColumn(client);
+
+  for (const material of materials) {
+    const columns = ["production_order_id", "product_name", "quantity", "unit"];
+    const values: unknown[] = [productionId, material.productName, material.quantity, material.unit];
+
+    if (canUseProductId) {
+      columns.push("product_id");
+      values.push(material.productId ?? null);
+    }
+
+    if (canUseUnitPrice) {
+      columns.push("unit_price");
+      values.push(toNumber(material.unitPrice ?? 0));
+    }
+
+    await client.query(
+      `INSERT INTO public.production_order_materials (${columns.join(", ")})
+       VALUES (${values.map((_, index) => `$${index + 1}`).join(", ")});`,
+      values,
+    );
+  }
+}
+
+async function replaceMaterials(
+  id: string,
+  materials: CreateProductionInput["materials"],
+): Promise<boolean> {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    if (!(await ensureProductionExistsForUpdate(client, id))) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+
+    await client.query("DELETE FROM public.production_order_materials WHERE production_order_id::text = $1;", [id]);
+    await insertMaterials(client, id, materials);
+    await client.query("UPDATE public.production_orders SET updated_at = NOW() WHERE id::text = $1;", [id]);
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+interface ProductionDetailsPatch {
+  clientName?: string;
+  description?: string;
+  deliveryDate?: string | null;
+  installationTeamId?: string;
+  installationTeam?: string;
+  initialCost?: number;
+  profitPercent?: number;
+  commissionPercent?: number;
+}
+
+async function updateDetails(id: string, patch: ProductionDetailsPatch): Promise<boolean> {
+  const columns: [string, unknown][] = [];
+
+  if (patch.clientName !== undefined) columns.push(["client_name", patch.clientName]);
+  if (patch.description !== undefined) columns.push(["description", patch.description]);
+  if (patch.deliveryDate !== undefined) columns.push(["delivery_date", patch.deliveryDate]);
+  if (patch.installationTeamId !== undefined) {
+    columns.push(["installation_team_id", patch.installationTeamId]);
+    columns.push(["installation_team", patch.installationTeam ?? null]);
+  }
+  if (patch.initialCost !== undefined) columns.push(["initial_cost", patch.initialCost]);
+  if (patch.profitPercent !== undefined) columns.push(["profit_percent", patch.profitPercent]);
+  if (patch.commissionPercent !== undefined) columns.push(["commission_percent", patch.commissionPercent]);
+
+  const values = columns.map(([, value]) => value);
+  values.push(id);
+
+  try {
+    const result = await pool.query(
+      `UPDATE public.production_orders
+       SET ${columns.map(([column], index) => `${column} = $${index + 1}`).join(", ")}, updated_at = NOW()
+       WHERE id::text = $${values.length};`,
+      values,
+    );
+
+    return (result.rowCount ?? 0) > 0;
+  } catch (error) {
+    if ((error as { code?: string }).code === "42703") {
+      throw new AppError("Production schema is not configured. Run sql/20260922_production_profit_commission.sql", 500);
+    }
+
+    throw error;
+  }
+}
+
+async function getFinancialPercents(id: string): Promise<{ profitPercent: number; commissionPercent: number }> {
+  try {
+    const result = await pool.query<{ profit_percent: string | number; commission_percent: string | number }>(
+      "SELECT profit_percent, commission_percent FROM public.production_orders WHERE id::text = $1;",
+      [id],
+    );
+
+    return {
+      profitPercent: toNumber(result.rows[0]?.profit_percent ?? 0),
+      commissionPercent: toNumber(result.rows[0]?.commission_percent ?? 0),
+    };
+  } catch (error) {
+    if ((error as { code?: string }).code === "42703") {
+      return { profitPercent: 0, commissionPercent: 0 };
+    }
+
+    throw error;
+  }
+}
+
 export const productionRepository = {
+  replaceMaterials,
+  updateDetails,
+  getFinancialPercents,
   isFinishedStatus,
   remove,
   findAll,

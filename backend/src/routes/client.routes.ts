@@ -8,7 +8,7 @@ import { createClientSchema, updateClientSchema } from "../models/client.model";
 const clientRoutes = Router();
 
 clientRoutes.use(requireAuth);
-clientRoutes.use(authorizeRoles("admin", "gerente"));
+clientRoutes.use(authorizeRoles("admin"));
 
 clientRoutes.get("/", clientController.list);
 clientRoutes.get("/:id", clientController.getById);

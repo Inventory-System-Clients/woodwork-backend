@@ -35,7 +35,18 @@ const getEmployeeReport = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json({ data: report });
 });
 
+const getSummary = asyncHandler(async (req: Request, res: Response) => {
+  const query = listWorkHoursQuerySchema.parse({
+    from: typeof req.query.from === "string" ? req.query.from : undefined,
+    to: typeof req.query.to === "string" ? req.query.to : undefined,
+  });
+
+  const summary = await workHoursService.getSummary(query);
+  res.status(200).json({ data: summary });
+});
+
 export const workHoursController = {
+  getSummary,
   getMyDay,
   setMyDay,
   getEmployeeReport,

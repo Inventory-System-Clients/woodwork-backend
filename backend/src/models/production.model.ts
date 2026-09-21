@@ -75,9 +75,40 @@ export const createProductionSchema = z.object({
   deliveryDate: deliveryDateSchema.optional().nullable(),
   installationTeamId: z.string().trim().min(1, "installationTeamId is required"),
   initialCost: z.coerce.number().nonnegative("initialCost cannot be negative").default(0),
-  materials: z.array(productionMaterialSchema).min(1, "At least one material is required"),
+  // Materials, expenses, profit and commission can be added later, while editing the production.
+  materials: z.array(productionMaterialSchema).default([]),
   expenses: z.array(productionExpenseSchema).default([]),
 });
+
+const percentSchema = z.coerce
+  .number()
+  .min(0, "percent cannot be negative")
+  .max(100, "percent cannot exceed 100");
+
+export const updateProductionSchema = z
+  .object({
+    clientName: z.string().trim().min(2).max(200).optional(),
+    description: z.string().trim().min(1).max(2000).optional(),
+    deliveryDate: deliveryDateSchema.nullable().optional(),
+    installationTeamId: z.string().trim().min(1).optional(),
+    initialCost: z.coerce.number().nonnegative("initialCost cannot be negative").optional(),
+    profitPercent: percentSchema.optional(),
+    commissionPercent: percentSchema.optional(),
+  })
+  .refine((payload) => Object.keys(payload).length > 0, {
+    message: "At least one field must be provided",
+  });
+
+// Replaces the whole material list (may be empty).
+export const setProductionMaterialsSchema = z.object({
+  materials: z.array(productionMaterialSchema).max(500),
+});
+
+export const updateProductionExpenseSchema = productionExpenseSchema
+  .partial()
+  .refine((payload) => Object.keys(payload).length > 0, {
+    message: "At least one field must be provided",
+  });
 
 export const productionStatusInputSchema = z
   .object({
@@ -151,6 +182,14 @@ export interface ProductionCostReport {
   expensesTotal: number;
   totalSpent: number;
   balance: number;
+  profitPercent: number;
+  commissionPercent: number;
+  /** profitPercent applied over totalSpent. */
+  profitValue: number;
+  /** commissionPercent applied over profitValue. */
+  commissionValue: number;
+  netProfit: number;
+  salePrice: number;
 }
 
 export type ProductionExpenseInput = z.infer<typeof productionExpenseSchema>;
@@ -158,3 +197,7 @@ export type CreateProductionInput = z.infer<typeof createProductionSchema>;
 export type AdvanceProductionStatusInput = z.infer<typeof advanceProductionStatusSchema>;
 export type SetProductionStatusesInput = z.infer<typeof setProductionStatusesSchema>;
 export type ListProductionsQueryInput = z.infer<typeof listProductionsQuerySchema>;
+
+export type UpdateProductionInput = z.infer<typeof updateProductionSchema>;
+export type SetProductionMaterialsInput = z.infer<typeof setProductionMaterialsSchema>;
+export type UpdateProductionExpenseInput = z.infer<typeof updateProductionExpenseSchema>;

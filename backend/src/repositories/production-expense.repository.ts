@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { PoolClient } from "pg";
 import { pool } from "../database/postgres";
-import { ProductionExpense, ProductionExpenseInput } from "../models/production.model";
+import { ProductionExpense, ProductionExpenseInput, UpdateProductionExpenseInput } from "../models/production.model";
 import { AppError } from "../utils/app-error";
 
 interface ProductionExpenseRow {
@@ -117,7 +117,43 @@ async function remove(productionId: string, expenseId: string): Promise<boolean>
   }
 }
 
+async function update(
+  productionId: string,
+  expenseId: string,
+  input: UpdateProductionExpenseInput,
+): Promise<ProductionExpense | undefined> {
+  const columns: [string, unknown][] = [];
+
+  if (input.description !== undefined) columns.push(["description", input.description]);
+  if (input.category !== undefined) columns.push(["category", input.category?.trim() || null]);
+  if (input.amount !== undefined) columns.push(["amount", input.amount]);
+
+  const values = columns.map(([, value]) => value);
+  values.push(expenseId, productionId);
+
+  const client = await pool.connect();
+
+  try {
+    await ensureExpensesTable(client);
+
+    const result = await client.query<ProductionExpenseRow>(
+      `
+        UPDATE public.production_expenses
+        SET ${columns.map(([column], index) => `${column} = $${index + 1}`).join(", ")}
+        WHERE id = $${columns.length + 1} AND production_id = $${columns.length + 2}
+        RETURNING ${EXPENSE_COLUMNS};
+      `,
+      values,
+    );
+
+    return result.rows[0] ? mapRow(result.rows[0]) : undefined;
+  } finally {
+    client.release();
+  }
+}
+
 export const productionExpenseRepository = {
+  update,
   insertExpense,
   listByProductionId,
   create,

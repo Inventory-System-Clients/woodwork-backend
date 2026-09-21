@@ -152,7 +152,7 @@ If this variable is empty, backend returns a relative URL in `data.url` (example
 
 Endpoints:
 
-- `POST /api/productions/:id/share-link` (auth required, `admin|gerente`)
+- `POST /api/productions/:id/share-link` (auth required, `admin`)
 - `POST /api/productions/:id/share` (auth required, alias)
 - `GET /api/public/productions/:token` (public)
 - `GET /api/productions/public/:token` (public alias)
@@ -218,7 +218,7 @@ Rules:
 
 ## Production images API
 
-Authenticated endpoints (`admin|gerente`):
+Authenticated endpoints (`admin`):
 
 - `GET /api/productions/:id/images`
 - `POST /api/productions/:id/images`
@@ -250,27 +250,26 @@ Upload response:
 Bootstrap users created by `sql/20260317_add_employee_auth_roles.sql`:
 
 - `admin@backwood.com` (`admin`)
-- `gerente@backwood.com` (`gerente`)
 - `funcionario@backwood.com` (`funcionario`)
 - Initial password for all: `Senha@123`
 
 ## Authentication and roles
 
 - Login is based on employee email and password.
-- Roles: `admin`, `gerente`, `funcionario`.
-- `admin` and `gerente` can manage employees, teams, and productions.
-- `admin` and `gerente` can manage budgets.
-- `admin` and `gerente` can manage products and stock movements.
-- `admin` and `gerente` can manage clients.
-- `admin` and `gerente` can create production share links.
-- `admin` and `gerente` can upload/list production images.
+- Roles: `admin`, `funcionario` (the old `gerente` profile was merged into `admin` by `sql/20260921_project_mvp.sql`).
+- `admin` can manage employees, teams, and productions.
+- `admin` can manage budgets.
+- `admin` can manage products and stock movements.
+- `admin` can manage clients.
+- `admin` can create production share links.
+- `admin` can upload/list production images.
 - `funcionario` cannot create/complete productions and cannot access employees/teams/users management routes.
 - `funcionario` cannot access budgets routes.
 - `funcionario` cannot access products and stock movement routes.
 - `funcionario` cannot access clients routes.
 - `funcionario` can list productions, but only from teams where this employee is a member.
 - Public tracking routes do not require authentication.
-- `GET /api/logistics/summary` is available only for `admin` and `gerente`.
+- `GET /api/logistics/summary` is available only for `admin`.
 
 ## Clients API
 
@@ -411,3 +410,14 @@ If you prefer a manual setup, use these values in a **Web Service**:
 After the first deploy, your API should be available at:
 
 - `https://<your-render-service>.onrender.com/api/health`
+
+## Projects, costs and hours (MVP)
+
+Run `sql/20260921_project_mvp.sql` first. A "project" is a `production_orders` row (`description` = name,
+`delivery_date` = deadline, `project_status` = `Em andamento | Pausado | Finalizado`); costs live in `production_expenses`.
+
+- `GET /api/projects` (auth): admin gets all projects with `totalCost`; employees get only the names of active projects.
+- `GET /api/projects/dashboard`, `GET|PATCH /api/projects/:id`, `POST /api/projects` (`admin`; create takes `name`, `clientName`, `status`).
+- `POST /api/projects/:id/costs` (`description`, `amount`, `supplier?`, `isPaid`, `paidAt?`), `PATCH .../costs/:costId/pay` (`paidAt?`), `PATCH .../costs/:costId/unpay`, `DELETE .../costs/:costId` (`admin`).
+- `GET /api/work-hours/me?date=` and `PUT /api/work-hours/me` with `{ date?, entries: [{ projectId | activity, minutes }] }` replaces the whole day (today/yesterday only).
+- `GET /api/work-hours/summary?from&to` (`admin`): hours per employee and project/activity (default: current month).

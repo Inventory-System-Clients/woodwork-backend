@@ -10,21 +10,21 @@ const logisticsRoutes = Router();
 logisticsRoutes.get(
   "/summary",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   logisticsController.summary,
 );
 
 logisticsRoutes.get(
   "/fechamentos",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   logisticsController.listFechamentos,
 );
 
 logisticsRoutes.post(
   "/fechamentos",
   requireAuth,
-  authorizeRoles("admin", "gerente"),
+  authorizeRoles("admin"),
   validateBody(createFechamentoSchema),
   logisticsController.createFechamento,
 );

@@ -8,7 +8,7 @@ import { createUserSchema, updateUserSchema } from "../models/user.model";
 const userRoutes = Router();
 
 userRoutes.use(requireAuth);
-userRoutes.use(authorizeRoles("admin", "gerente"));
+userRoutes.use(authorizeRoles("admin"));
 
 userRoutes.get("/", userController.list);
 userRoutes.get("/:id", userController.getById);

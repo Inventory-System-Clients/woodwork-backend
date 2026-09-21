@@ -9,7 +9,7 @@ import { createEmployeeSchema, updateEmployeeSchema } from "../models/employee.m
 const employeeRoutes = Router();
 
 employeeRoutes.use(requireAuth);
-employeeRoutes.use(authorizeRoles("admin", "gerente"));
+employeeRoutes.use(authorizeRoles("admin"));
 
 employeeRoutes.get("/", employeeController.list);
 employeeRoutes.get("/:id", employeeController.getById);
