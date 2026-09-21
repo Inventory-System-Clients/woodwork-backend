@@ -25,6 +25,7 @@ export const updateProjectSchema = z
     status: projectStatusSchema.optional(),
     lastUpdateNote: z.string().trim().max(2000).nullable().optional(),
     laborValue: z.coerce.number().nonnegative().optional(),
+    finalValue: z.coerce.number().nonnegative().nullable().optional(),
     discountValue: z.coerce.number().nonnegative().optional(),
   })
   .refine((payload) => Object.keys(payload).length > 0, {
@@ -133,6 +134,8 @@ export interface ProjectDetail {
   lastUpdateAt: string | null;
   laborValue: number;
   discountValue: number;
+  /** Price charged to the client; null until registered. */
+  finalValue: number | null;
   /** Project start (record creation). */
   createdAt: string | null;
   finishedAt: string | null;

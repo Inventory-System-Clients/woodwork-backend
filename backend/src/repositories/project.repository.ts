@@ -27,6 +27,7 @@ interface ProjectRow {
   last_update_at: string | Date | null;
   labor_value: string | number | null;
   discount_value: string | number | null;
+  final_value: string | number | null;
   created_at: string | Date | null;
   finished_at: string | Date | null;
 }
@@ -72,6 +73,7 @@ const PROJECT_SELECT = `
     po.last_update_at,
     po.labor_value,
     po.discount_value,
+    po.final_value,
     po.created_at,
     po.finished_at,
     COALESCE(c.total_cost, 0) AS total_cost,
@@ -143,6 +145,7 @@ function mapProject(row: ProjectRow) {
       row.last_update_at instanceof Date ? row.last_update_at.toISOString() : row.last_update_at,
     laborValue: toNumber(row.labor_value),
     discountValue: toNumber(row.discount_value),
+    finalValue: row.final_value === null ? null : toNumber(row.final_value),
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
     finishedAt: row.finished_at instanceof Date ? row.finished_at.toISOString() : row.finished_at,
     totals: {
@@ -254,6 +257,7 @@ async function update(id: string, input: UpdateProjectInput): Promise<boolean> {
 
   if (input.laborValue !== undefined) push("labor_value", input.laborValue);
   if (input.discountValue !== undefined) push("discount_value", input.discountValue);
+  if (input.finalValue !== undefined) push("final_value", input.finalValue);
 
   if (input.lastUpdateNote !== undefined) {
     push("last_update_note", input.lastUpdateNote || null);
@@ -490,17 +494,23 @@ async function getMonthlySeries(fromMonth: string): Promise<Map<string, MonthlyR
         `,
         [fromMonth],
       ),
-      // Final value (items + labor - discount) minus costs (items + commissions) = labor - discount - commissions.
+      // Profit = final value - all costs (commissions included). Without a registered final value,
+      // the value is items + labor - discount.
       pool.query<{ month: string; profit: string | null }>(
         `
           SELECT
             TO_CHAR(po.finished_at, 'YYYY-MM') AS month,
-            SUM(po.labor_value - po.discount_value - COALESCE(c.commissions, 0)) AS profit
+            SUM(
+              COALESCE(po.final_value, COALESCE(c.items, 0) + po.labor_value - po.discount_value)
+              - COALESCE(c.items, 0) - COALESCE(c.commissions, 0)
+            ) AS profit
           FROM public.production_orders po
           LEFT JOIN (
-            SELECT production_id, SUM(amount) AS commissions
+            SELECT
+              production_id,
+              SUM(amount) FILTER (WHERE NOT is_commission) AS items,
+              SUM(amount) FILTER (WHERE is_commission) AS commissions
             FROM public.production_expenses
-            WHERE is_commission
             GROUP BY production_id
           ) c ON c.production_id = po.id::text
           WHERE po.project_status = $2 AND po.finished_at >= $1::date

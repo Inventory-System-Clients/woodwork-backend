@@ -59,6 +59,7 @@ async function getDetail(id: string): Promise<ProjectDetail> {
     lastUpdateAt: project.lastUpdateAt,
     laborValue: project.laborValue,
     discountValue: project.discountValue,
+    finalValue: project.finalValue,
     createdAt: project.createdAt,
     finishedAt: project.finishedAt,
     totals: project.totals,
