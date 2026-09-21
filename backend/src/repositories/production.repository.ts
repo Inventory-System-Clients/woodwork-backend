@@ -1363,7 +1363,7 @@ async function deleteFromTableIfExists(
   await client.query(`DELETE FROM public.${tableName} WHERE ${column}::text = $1;`, [productionId]);
 }
 
-async function remove(id: string): Promise<boolean> {
+async function remove(id: string, options: { allowFinished?: boolean } = {}): Promise<boolean> {
   const client = await pool.connect();
 
   try {
@@ -1386,7 +1386,7 @@ async function remove(id: string): Promise<boolean> {
 
     const { production_status: status, completed_at: completedAt } = currentResult.rows[0];
 
-    if (Boolean(completedAt) || isFinishedStatus(status)) {
+    if (!options.allowFinished && (Boolean(completedAt) || isFinishedStatus(status))) {
       throw new AppError("Only productions in progress can be deleted", 409, { productionId: id });
     }
 

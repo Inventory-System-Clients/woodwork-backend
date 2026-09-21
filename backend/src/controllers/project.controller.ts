@@ -27,6 +27,11 @@ const update = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json({ data: await projectService.updateProject(req.params.id, req.body) });
 });
 
+const remove = asyncHandler(async (req: Request, res: Response) => {
+  await projectService.deleteProject(req.params.id);
+  res.status(200).json({ data: { id: req.params.id } });
+});
+
 const addCost = asyncHandler(async (req: Request, res: Response) => {
   res.status(201).json({ data: await projectService.addCost(req.params.id, req.body) });
 });
@@ -52,6 +57,7 @@ export const projectController = {
   getById,
   create,
   update,
+  remove,
   addCost,
   markCostPaid,
   markCostUnpaid,

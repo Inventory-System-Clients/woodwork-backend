@@ -9,6 +9,7 @@ import {
   UpdateProjectInput,
 } from "../models/project.model";
 import { employeeRepository } from "../repositories/employee.repository";
+import { productionRepository } from "../repositories/production.repository";
 import { projectRepository } from "../repositories/project.repository";
 import { AppError } from "../utils/app-error";
 import { workHoursService } from "./work-hours.service";
@@ -83,6 +84,15 @@ async function updateProject(id: string, input: UpdateProjectInput): Promise<Pro
   }
 
   return getDetail(id);
+}
+
+/** Deletes the project with its costs, photos, share links and materials. Logged hours are kept. */
+async function deleteProject(id: string): Promise<void> {
+  const deleted = await productionRepository.remove(id, { allowFinished: true });
+
+  if (!deleted) {
+    throw new AppError("Project not found", 404, { projectId: id });
+  }
 }
 
 async function addCost(projectId: string, input: CreateProjectCostInput): Promise<ProjectCost> {
@@ -211,6 +221,7 @@ export const projectService = {
   getDetail,
   createProject,
   updateProject,
+  deleteProject,
   addCost,
   setCostPaid,
   removeCost,

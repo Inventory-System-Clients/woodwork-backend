@@ -23,6 +23,7 @@ projectRoutes.get("/dashboard", projectController.dashboard);
 projectRoutes.post("/", validateBody(createProjectSchema), projectController.create);
 projectRoutes.get("/:id", projectController.getById);
 projectRoutes.patch("/:id", validateBody(updateProjectSchema), projectController.update);
+projectRoutes.delete("/:id", projectController.remove);
 projectRoutes.post("/:id/costs", validateBody(createProjectCostSchema), projectController.addCost);
 projectRoutes.patch(
   "/:id/costs/:costId/pay",
