@@ -150,6 +150,21 @@ export interface ProjectDashboard {
   hoursMonthMinutes: number;
   monthLabel: string;
   topProjects: { id: string; name: string; clientName: string; totalCost: number; totalMinutes: number }[];
+  /** Last 12 months, oldest first. */
+  monthly: ProjectMonthlyPoint[];
+}
+
+export interface ProjectMonthlyPoint {
+  /** YYYY-MM */
+  month: string;
+  /** Costs launched in the month, commissions excluded. */
+  expenses: number;
+  /** Commission costs launched in the month. */
+  commissions: number;
+  /** Profit of the projects finished in the month: final value - costs - commissions. */
+  profit: number;
+  /** Highest number of projects running on the same day of the month. */
+  peakProjects: number;
 }
 
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;

@@ -453,7 +453,100 @@ async function sumMinutesInRange(from: string, to: string): Promise<number> {
   }
 }
 
+export interface MonthlyRawRow {
+  month: string;
+  expenses: number;
+  commissions: number;
+  profit: number;
+  peakProjects: number;
+}
+
+/** Monthly series from `fromMonth` (YYYY-MM-01) to today, keyed by YYYY-MM. */
+async function getMonthlySeries(fromMonth: string): Promise<Map<string, MonthlyRawRow>> {
+  const rows = new Map<string, MonthlyRawRow>();
+  const ensure = (month: string) => {
+    let row = rows.get(month);
+
+    if (!row) {
+      row = { month, expenses: 0, commissions: 0, profit: 0, peakProjects: 0 };
+      rows.set(month, row);
+    }
+
+    return row;
+  };
+
+  try {
+    const [costs, profits, peaks] = await Promise.all([
+      pool.query<{ month: string; expenses: string | null; commissions: string | null }>(
+        `
+          SELECT
+            TO_CHAR(e.created_at, 'YYYY-MM') AS month,
+            SUM(e.amount) FILTER (WHERE NOT e.is_commission) AS expenses,
+            SUM(e.amount) FILTER (WHERE e.is_commission) AS commissions
+          FROM public.production_expenses e
+          WHERE e.created_at >= $1::date
+            AND EXISTS (SELECT 1 FROM public.production_orders po WHERE po.id::text = e.production_id)
+          GROUP BY 1;
+        `,
+        [fromMonth],
+      ),
+      // Final value (items + labor - discount) minus costs (items + commissions) = labor - discount - commissions.
+      pool.query<{ month: string; profit: string | null }>(
+        `
+          SELECT
+            TO_CHAR(po.finished_at, 'YYYY-MM') AS month,
+            SUM(po.labor_value - po.discount_value - COALESCE(c.commissions, 0)) AS profit
+          FROM public.production_orders po
+          LEFT JOIN (
+            SELECT production_id, SUM(amount) AS commissions
+            FROM public.production_expenses
+            WHERE is_commission
+            GROUP BY production_id
+          ) c ON c.production_id = po.id::text
+          WHERE po.project_status = $2 AND po.finished_at >= $1::date
+          GROUP BY 1;
+        `,
+        [fromMonth, "Finalizado"],
+      ),
+      pool.query<{ month: string; peak: string | null }>(
+        `
+          SELECT TO_CHAR(t.d, 'YYYY-MM') AS month, MAX(t.cnt) AS peak
+          FROM (
+            SELECT d::date AS d, COUNT(po.id) AS cnt
+            FROM generate_series($1::date, CURRENT_DATE, INTERVAL '1 day') AS d
+            LEFT JOIN public.production_orders po
+              ON po.created_at::date <= d::date
+             AND COALESCE(po.finished_at::date, CURRENT_DATE) >= d::date
+            GROUP BY d
+          ) t
+          GROUP BY 1;
+        `,
+        [fromMonth],
+      ),
+    ]);
+
+    for (const row of costs.rows) {
+      const point = ensure(row.month);
+      point.expenses = toNumber(row.expenses);
+      point.commissions = toNumber(row.commissions);
+    }
+
+    for (const row of profits.rows) {
+      ensure(row.month).profit = toNumber(row.profit);
+    }
+
+    for (const row of peaks.rows) {
+      ensure(row.month).peakProjects = toNumber(row.peak);
+    }
+
+    return rows;
+  } catch (error) {
+    return wrapSchemaError(error);
+  }
+}
+
 export const projectRepository = {
+  getMonthlySeries,
   list,
   listActiveNames,
   findById,

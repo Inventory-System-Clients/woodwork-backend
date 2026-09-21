@@ -5,6 +5,7 @@ import {
   ProjectDashboard,
   ProjectDetail,
   ProjectListItem,
+  ProjectMonthlyPoint,
   UpdateProjectInput,
 } from "../models/project.model";
 import { employeeRepository } from "../repositories/employee.repository";
@@ -151,14 +152,30 @@ async function removeCost(projectId: string, costId: string): Promise<void> {
   }
 }
 
+/** ["YYYY-MM", ...] for the `count` months ending at the month of `today` (YYYY-MM-DD), oldest first. */
+function lastMonths(today: string, count: number): string[] {
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+
+  return Array.from({ length: count }, (_, index) => {
+    const offset = count - 1 - index;
+    const date = new Date(Date.UTC(year, month - 1 - offset, 1));
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+  });
+}
+
 async function getDashboard(): Promise<ProjectDashboard> {
   const today = workHoursService.formatDateInBusinessZone(new Date());
   const monthStart = `${today.slice(0, 8)}01`;
 
-  const [totals, projects, hoursMonthMinutes] = await Promise.all([
+  // Last 12 months, including the current one.
+  const months = lastMonths(today, 12);
+
+  const [totals, projects, hoursMonthMinutes, monthlyRaw] = await Promise.all([
     projectRepository.getDashboardTotals(),
     projectRepository.list(),
     projectRepository.sumMinutesInRange(monthStart, today),
+    projectRepository.getMonthlySeries(`${months[0]}-01`),
   ]);
 
   const topProjects = [...projects]
@@ -180,6 +197,9 @@ async function getDashboard(): Promise<ProjectDashboard> {
     hoursMonthMinutes,
     monthLabel: today.slice(0, 7),
     topProjects,
+    monthly: months.map<ProjectMonthlyPoint>(
+      (month) => monthlyRaw.get(month) ?? { month, expenses: 0, commissions: 0, profit: 0, peakProjects: 0 },
+    ),
   };
 }
 
