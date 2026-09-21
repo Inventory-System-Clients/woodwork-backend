@@ -17,6 +17,7 @@ interface ProjectRow {
   id: string;
   name: string;
   client_name: string;
+  client_document: string | null;
   deadline: string | null;
   status: string;
   total_cost: string | number | null;
@@ -67,6 +68,7 @@ const PROJECT_SELECT = `
     po.id::text AS id,
     po.description AS name,
     po.client_name,
+    po.client_document,
     TO_CHAR(po.delivery_date, 'YYYY-MM-DD') AS deadline,
     po.project_status AS status,
     po.last_update_note,
@@ -138,6 +140,7 @@ function mapProject(row: ProjectRow) {
     id: row.id,
     name: row.name,
     clientName: row.client_name,
+    clientDocument: row.client_document,
     deadline: row.deadline,
     status: row.status as ProjectStatus,
     lastUpdateNote: row.last_update_note,
@@ -221,16 +224,17 @@ async function create(input: CreateProjectInput): Promise<string> {
       `
         INSERT INTO public.production_orders (
           client_name,
+          client_document,
           description,
           production_status,
           project_status,
           installation_team,
           initial_cost
         )
-        VALUES ($1, $2, 'pending', $3, NULL, 0)
+        VALUES ($1, $4, $2, 'pending', $3, NULL, 0)
         RETURNING id::text AS id;
       `,
-      [input.clientName, input.name, input.status],
+      [input.clientName, input.name, input.status, input.clientDocument],
     );
 
     return result.rows[0].id;
@@ -249,6 +253,7 @@ async function update(id: string, input: UpdateProjectInput): Promise<boolean> {
 
   if (input.name !== undefined) push("description", input.name);
   if (input.clientName !== undefined) push("client_name", input.clientName);
+  if (input.clientDocument !== undefined) push("client_document", input.clientDocument);
   if (input.deadline !== undefined) push("delivery_date", input.deadline);
   if (input.status !== undefined) {
     push("project_status", input.status);

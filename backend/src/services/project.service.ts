@@ -53,6 +53,7 @@ async function getDetail(id: string): Promise<ProjectDetail> {
     id: project.id,
     name: project.name,
     clientName: project.clientName,
+    clientDocument: project.clientDocument,
     deadline: project.deadline,
     status: project.status,
     lastUpdateNote: project.lastUpdateNote,

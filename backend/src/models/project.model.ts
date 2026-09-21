@@ -6,6 +6,18 @@ export const ACTIVE_PROJECT_STATUS: ProjectStatus = "Em andamento";
 
 const projectStatusSchema = z.enum(PROJECT_STATUSES);
 
+/** Accepts CPF (11 digits) or CNPJ (14 digits), with or without punctuation, and stores it formatted. */
+const documentSchema = z
+  .string()
+  .trim()
+  .transform((value) => value.replace(/\D/g, ""))
+  .refine((digits) => digits.length === 11 || digits.length === 14, "CPF must have 11 digits or CNPJ 14 digits")
+  .transform((digits) =>
+    digits.length === 11
+      ? digits.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4")
+      : digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5"),
+  );
+
 const dateOnlySchema = z
   .string()
   .trim()
@@ -14,6 +26,7 @@ const dateOnlySchema = z
 export const createProjectSchema = z.object({
   name: z.string().trim().min(1, "name is required").max(2000),
   clientName: z.string().trim().min(1, "clientName is required").max(200),
+  clientDocument: documentSchema,
   status: projectStatusSchema.default(ACTIVE_PROJECT_STATUS),
 });
 
@@ -21,6 +34,7 @@ export const updateProjectSchema = z
   .object({
     name: z.string().trim().min(1).max(2000).optional(),
     clientName: z.string().trim().min(1).max(200).optional(),
+    clientDocument: documentSchema.optional(),
     deadline: dateOnlySchema.nullable().optional(),
     status: projectStatusSchema.optional(),
     lastUpdateNote: z.string().trim().max(2000).nullable().optional(),
@@ -128,6 +142,8 @@ export interface ProjectDetail {
   id: string;
   name: string;
   clientName: string;
+  /** CPF/CNPJ informed when the project was created (null on older projects). */
+  clientDocument: string | null;
   deadline: string | null;
   status: ProjectStatus;
   lastUpdateNote: string | null;
