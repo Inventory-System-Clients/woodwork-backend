@@ -24,6 +24,8 @@ export const updateProjectSchema = z
     deadline: dateOnlySchema.nullable().optional(),
     status: projectStatusSchema.optional(),
     lastUpdateNote: z.string().trim().max(2000).nullable().optional(),
+    laborValue: z.coerce.number().nonnegative().optional(),
+    discountValue: z.coerce.number().nonnegative().optional(),
   })
   .refine((payload) => Object.keys(payload).length > 0, {
     message: "At least one field must be provided",
@@ -129,6 +131,11 @@ export interface ProjectDetail {
   status: ProjectStatus;
   lastUpdateNote: string | null;
   lastUpdateAt: string | null;
+  laborValue: number;
+  discountValue: number;
+  /** Project start (record creation). */
+  createdAt: string | null;
+  finishedAt: string | null;
   totals: ProjectTotals;
   totalMinutes: number;
   hoursByEmployee: ProjectHoursByEmployee[];

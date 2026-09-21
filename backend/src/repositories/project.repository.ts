@@ -25,6 +25,10 @@ interface ProjectRow {
   total_minutes: string | number | null;
   last_update_note: string | null;
   last_update_at: string | Date | null;
+  labor_value: string | number | null;
+  discount_value: string | number | null;
+  created_at: string | Date | null;
+  finished_at: string | Date | null;
 }
 
 interface CostRow {
@@ -66,6 +70,10 @@ const PROJECT_SELECT = `
     po.project_status AS status,
     po.last_update_note,
     po.last_update_at,
+    po.labor_value,
+    po.discount_value,
+    po.created_at,
+    po.finished_at,
     COALESCE(c.total_cost, 0) AS total_cost,
     COALESCE(c.total_paid, 0) AS total_paid,
     COALESCE(c.total_to_pay, 0) AS total_to_pay,
@@ -133,6 +141,10 @@ function mapProject(row: ProjectRow) {
     lastUpdateNote: row.last_update_note,
     lastUpdateAt:
       row.last_update_at instanceof Date ? row.last_update_at.toISOString() : row.last_update_at,
+    laborValue: toNumber(row.labor_value),
+    discountValue: toNumber(row.discount_value),
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    finishedAt: row.finished_at instanceof Date ? row.finished_at.toISOString() : row.finished_at,
     totals: {
       totalPaid: toNumber(row.total_paid),
       totalToPay: toNumber(row.total_to_pay),
@@ -235,7 +247,13 @@ async function update(id: string, input: UpdateProjectInput): Promise<boolean> {
   if (input.name !== undefined) push("description", input.name);
   if (input.clientName !== undefined) push("client_name", input.clientName);
   if (input.deadline !== undefined) push("delivery_date", input.deadline);
-  if (input.status !== undefined) push("project_status", input.status);
+  if (input.status !== undefined) {
+    push("project_status", input.status);
+    sets.push(input.status === "Finalizado" ? "finished_at = COALESCE(finished_at, NOW())" : "finished_at = NULL");
+  }
+
+  if (input.laborValue !== undefined) push("labor_value", input.laborValue);
+  if (input.discountValue !== undefined) push("discount_value", input.discountValue);
 
   if (input.lastUpdateNote !== undefined) {
     push("last_update_note", input.lastUpdateNote || null);

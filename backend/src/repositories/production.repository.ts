@@ -503,6 +503,10 @@ async function updateProductionStatus(
             WHEN $2::text = ANY(ARRAY['approved', 'delivered']) THEN 'Finalizado'
             ELSE project_status
           END,
+          finished_at = CASE
+            WHEN $2::text = ANY(ARRAY['approved', 'delivered']) THEN COALESCE(finished_at, NOW())
+            ELSE finished_at
+          END,
           updated_at = NOW()
         WHERE id = $1;
       `,
@@ -1263,6 +1267,7 @@ async function advanceStatus(
           SET
             completed_at = COALESCE(completed_at, NOW()),
             project_status = 'Finalizado',
+            finished_at = COALESCE(finished_at, NOW()),
             updated_at = NOW()
           WHERE id::text = $1;
         `,
