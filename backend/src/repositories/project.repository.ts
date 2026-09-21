@@ -229,12 +229,13 @@ async function create(input: CreateProjectInput): Promise<string> {
           production_status,
           project_status,
           installation_team,
-          initial_cost
+          initial_cost,
+          delivery_date
         )
-        VALUES ($1, $4, $2, 'pending', $3, NULL, 0)
+        VALUES ($1, $4, $2, 'pending', $3, NULL, 0, $5)
         RETURNING id::text AS id;
       `,
-      [input.clientName, input.name, input.status, input.clientDocument],
+      [input.clientName, input.name, input.status, input.clientDocument, input.deadline ?? null],
     );
 
     return result.rows[0].id;

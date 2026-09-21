@@ -27,6 +27,7 @@ export const createProjectSchema = z.object({
   name: z.string().trim().min(1, "name is required").max(2000),
   clientName: z.string().trim().min(1, "clientName is required").max(200),
   clientDocument: documentSchema,
+  deadline: dateOnlySchema.optional(),
   status: projectStatusSchema.default(ACTIVE_PROJECT_STATUS),
 });
 
