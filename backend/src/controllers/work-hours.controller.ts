@@ -25,6 +25,16 @@ const setMyDay = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json({ data: result });
 });
 
+const updateEntry = asyncHandler(async (req: Request, res: Response) => {
+  const result = await workHoursService.updateEntry(req.params.id, req.body);
+  res.status(200).json({ data: result });
+});
+
+const removeEntry = asyncHandler(async (req: Request, res: Response) => {
+  await workHoursService.deleteEntry(req.params.id);
+  res.status(204).send();
+});
+
 const getEmployeeReport = asyncHandler(async (req: Request, res: Response) => {
   const query = listWorkHoursQuerySchema.parse({
     from: typeof req.query.from === "string" ? req.query.from : undefined,
@@ -49,5 +59,7 @@ export const workHoursController = {
   getSummary,
   getMyDay,
   setMyDay,
+  updateEntry,
+  removeEntry,
   getEmployeeReport,
 };

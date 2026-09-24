@@ -3,6 +3,8 @@ import {
   EmployeeWorkHoursReport,
   ListWorkHoursQueryInput,
   SetDayWorkHoursInput,
+  UpdateWorkHoursEntryInput,
+  WorkHoursEntry,
   WorkHoursSummary,
 } from "../models/work-hours.model";
 import { employeeRepository } from "../repositories/employee.repository";
@@ -102,6 +104,31 @@ async function setDay(employeeId: string, payload: SetDayWorkHoursInput): Promis
   return getDay(employeeId, date);
 }
 
+/** Admin correction: changes one line's minutes, still respecting the daily limit. */
+async function updateEntry(id: string, payload: UpdateWorkHoursEntryInput): Promise<WorkHoursEntry> {
+  const entry = await workHoursRepository.findById(id);
+
+  if (!entry) {
+    throw new AppError("Work hours entry not found", 404);
+  }
+
+  const dayEntries = await workHoursRepository.listByEmployeeAndRange(entry.employeeId, entry.workDate, entry.workDate);
+  const totalMinutes = sumMinutes(dayEntries.filter((item) => item.id !== id)) + payload.minutes;
+
+  if (totalMinutes > MAX_MINUTES_PER_DAY) {
+    throw new AppError("Total hours in a day cannot exceed 8 hours", 400, { totalMinutes });
+  }
+
+  await workHoursRepository.updateMinutes(id, payload.minutes);
+  return { ...entry, minutes: payload.minutes };
+}
+
+async function deleteEntry(id: string): Promise<void> {
+  if (!(await workHoursRepository.deleteById(id))) {
+    throw new AppError("Work hours entry not found", 404);
+  }
+}
+
 async function getReportForEmployee(
   employeeId: string,
   query: ListWorkHoursQueryInput,
@@ -154,5 +181,7 @@ export const workHoursService = {
   formatDateInBusinessZone,
   getDay,
   setDay,
+  updateEntry,
+  deleteEntry,
   getReportForEmployee,
 };

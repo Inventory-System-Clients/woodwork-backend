@@ -41,6 +41,11 @@ export const setDayWorkHoursSchema = z.object({
   entries: z.array(workHoursEntryInputSchema).max(50, "too many entries"),
 });
 
+// Admin correction of a single logged line (use DELETE to remove it).
+export const updateWorkHoursEntrySchema = z.object({
+  minutes: minutesSchema.refine((value) => value > 0, "minutes must be greater than zero"),
+});
+
 export const listWorkHoursQuerySchema = z.object({
   from: dateOnlySchema.optional(),
   to: dateOnlySchema.optional(),
@@ -73,6 +78,7 @@ export interface EmployeeWorkHoursReport {
 }
 
 export type SetDayWorkHoursInput = z.infer<typeof setDayWorkHoursSchema>;
+export type UpdateWorkHoursEntryInput = z.infer<typeof updateWorkHoursEntrySchema>;
 export type ListWorkHoursQueryInput = z.infer<typeof listWorkHoursQuerySchema>;
 
 

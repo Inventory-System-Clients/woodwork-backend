@@ -73,6 +73,32 @@ async function listByEmployeeAndRange(employeeId: string, from: string, to: stri
   }
 }
 
+async function findById(id: string): Promise<WorkHoursEntry | null> {
+  try {
+    const result = await pool.query<WorkHoursRow>(`${SELECT_ENTRIES} WHERE wh.id::text = $1;`, [id]);
+    return result.rows[0] ? mapRow(result.rows[0]) : null;
+  } catch (error) {
+    return wrapMissingSchema(error);
+  }
+}
+
+async function updateMinutes(id: string, minutes: number): Promise<void> {
+  try {
+    await pool.query("UPDATE public.work_hours SET minutes = $2 WHERE id::text = $1;", [id, minutes]);
+  } catch (error) {
+    wrapMissingSchema(error);
+  }
+}
+
+async function deleteById(id: string): Promise<boolean> {
+  try {
+    const result = await pool.query("DELETE FROM public.work_hours WHERE id::text = $1;", [id]);
+    return (result.rowCount ?? 0) > 0;
+  } catch (error) {
+    return wrapMissingSchema(error);
+  }
+}
+
 /** Replaces all of the employee's lines for one day in a single transaction. */
 async function replaceDay(employeeId: string, workDate: string, entries: ReplaceDayEntry[]): Promise<void> {
   const client = await pool.connect();
@@ -148,6 +174,9 @@ async function summarize(from: string, to: string): Promise<WorkHoursSummaryRow[
 
 export const workHoursRepository = {
   listByEmployeeAndRange,
+  findById,
+  updateMinutes,
+  deleteById,
   replaceDay,
   summarize,
 };
